@@ -1,0 +1,1738 @@
+/* Streak Charger app: tracker logic, screens and animations. Saving goes through cloud.js. */
+(() => {
+"use strict";
+
+/* =========================================================
+   Constants
+   ========================================================= */
+const KEY = "streak-charger.v1";
+const DAY = 864e5;
+const R = 104, C = 2 * Math.PI * R;
+const TIERS = [
+  { min: 0,   sym: "🌱", name: "Rookie",      c1: "#c2c9d3", c2: "#7b8594", badge: "plain",  fx: {} },
+  { min: 5,   sym: "🐸", name: "Frog",        c1: "#9cf5a6", c2: "#2fbf55", badge: "plain",  fx: { glow: 2 } },
+  { min: 10,  sym: "🦊", name: "Fox",         c1: "#ffc48a", c2: "#ff7a2f", badge: "glow",   fx: { glow: 6 } },
+  { min: 15,  sym: "🐺", name: "Wolf",        c1: "#d4e4ff", c2: "#6d8cff", badge: "glow",   fx: { glow: 10, pulse: 1 } },
+  { min: 20,  sym: "🔥", name: "Blazing",     c1: "#ffd36b", c2: "#ff5a1f", badge: "flame",  fx: { glow: 10, pulse: 1, flames: ["#ffe08a", "#ff4d00"], fl: .6 } },
+  { min: 25,  sym: "💥", name: "Unstoppable", c1: "#ffe66b", c2: "#ff2d55", badge: "flame",  fx: { glow: 12, pulse: 1, flames: ["#fff0a0", "#ff2d55"], fl: 1, sparkles: "#ffe66b", sc: 8 } },
+  { min: 35,  sym: "💎", name: "Diamond",     c1: "#e0fdff", c2: "#3ad6ff", badge: "glow",   fx: { glow: 14, pulse: 1, sparkles: "#f0feff", sc: 22 } },
+  { min: 50,  sym: "☄️", name: "Comet",       c1: "#a6f0ff", c2: "#5b6cff", badge: "cosmic", fx: { glow: 14, pulse: 1, comet: "#cdf6ff", sparkles: "#cfe8ff", sc: 12 } },
+  { min: 65,  sym: "🐉", name: "Dragon",      c1: "#ffa06b", c2: "#d4142f", badge: "flame",  fx: { glow: 16, pulse: 1, flames: ["#ffb36b", "#d4142f"], fl: 1.7, sparkles: "#ffb36b", sc: 8 } },
+  { min: 80,  sym: "⭐", name: "Superstar",   c1: "#fff7b0", c2: "#ffbf00", badge: "glow",   fx: { glow: 18, pulse: 1, sparkles: "#fff3a0", sc: 30, burst: "#ffd84a" } },
+  { min: 90,  sym: "🏆", name: "Champion",    c1: "#ffe9a0", c2: "#e3a400", badge: "flame",  fx: { glow: 18, pulse: 1, flames: ["#fff2b0", "#e3a400"], fl: 1.4, sparkles: "#fff3a0", sc: 12 } },
+  { min: 100, sym: "👑", name: "Legend",      c1: "#fff6c2", c2: "#f5c518", badge: "flame",  fx: { glow: 20, pulse: 1, flames: ["#fff6c2", "#f5a518"], fl: 1.6, halo: ["#f5c518", "#fff6c2", "#b8860b", "#f5c518"] } },
+  { min: 125, sym: "🔱", name: "Titan",       c1: "#b4fff3", c2: "#00b3a4", badge: "cosmic", fx: { glow: 20, pulse: 1, lightning: "#c8fff7", halo: ["#00b3a4", "#b4fff3", "#006d66", "#00b3a4"], sparkles: "#b4fff3", sc: 12 } },
+  { min: 150, sym: "🪐", name: "Galactic",    c1: "#d4b8ff", c2: "#6a3cff", badge: "cosmic", fx: { glow: 22, pulse: 1, halo: ["#6a3cff", "#ff5fd2", "#3ad6ff", "#6a3cff"], orbiters: 8, sparkles: "#ffffff", sc: 22 } },
+  { min: 175, sym: "☀️", name: "Supernova",   c1: "#fff1b8", c2: "#ff6a00", badge: "cosmic", fx: { glow: 24, pulse: 1, halo: ["#ff6a00", "#ffd84a", "#ff2d55", "#ff6a00"], burst: "#fff1b8", flames: ["#fff1b8", "#ff6a00"], fl: 1.2, orbiters: 4 } },
+  { min: 200, sym: "♾️", name: "Immortal",    c1: "#ffffff", c2: "#b06bff", badge: "cosmic", fx: { glow: 26, pulse: 1, halo: ["#ff5f5f", "#ffd84a", "#39ff88", "#3ad6ff", "#b06bff", "#ff5f5f"], orbiters: 10, comet: "#ffffff", sparkles: "#ffffff", sc: 26, burst: "#ffffff" } },
+];
+TIERS.forEach((t, i) => t.idx = i);
+const GOLD = { c1: "#fff3b0", c2: "#e8a90c" };
+const RISKS = [
+  { min: 1.10, sym: "⚪", name: "Bit spicy",   c: "#d9dde3", lvl: 1, dur: 2.6 },
+  { min: 1.20, sym: "🟡", name: "Risky",       c: "#ffd23f", lvl: 2, dur: 1.9 },
+  { min: 1.50, sym: "🟠", name: "Very risky",  c: "#ff9a3c", lvl: 3, dur: 1.3 },
+  { min: 1.75, sym: "🔴", name: "Danger",      c: "#ff3b5c", lvl: 4, dur: .85 },
+  { min: 2.00, sym: "💀", name: "Super risky", c: "#ff2a6d", lvl: 5, dur: .6 },
+  { min: 3.0000001, sym: "🎰", name: "All in", c: "#c86bff", lvl: 6, dur: .4 },
+];
+const ODDS_BANDS = [{ lo: 1, hi: 1.10, name: "Under 1.10", sym: "🟢" }].concat(RISKS.map((r, i) => ({ lo: r.min, hi: RISKS[i + 1] ? RISKS[i + 1].min : Infinity, name: r.name, sym: r.sym })));
+const ACCENTS = ["#3ad6ff", "#39ff88", "#b38cff", "#ff7ad9", "#ffb547", "#ff5f5f", "#f2f4f7"];
+const SKINS = [
+  { id: "dark", name: "Charcoal", sw: "linear-gradient(135deg,#15171b,#262a31)", need: 0 },
+  { id: "light", name: "Light", sw: "linear-gradient(135deg,#f6f8fb,#dfe5ee)", need: 0 },
+  { id: "wolf", name: "Wolf", sym: "🐺", sw: "linear-gradient(135deg,#0d1118,#33416b 60%,#d4e4ff)", need: 15 },
+  { id: "unstoppable", name: "Unstoppable", sym: "💥", sw: "linear-gradient(135deg,#160a0c,#a3122f 55%,#ffe66b)", need: 25 },
+  { id: "comet", name: "Comet", sym: "☄️", sw: "linear-gradient(135deg,#0a1024,#2a3a8a 60%,#5ad2ff)", need: 50 },
+  { id: "legend", name: "Legend", sym: "👑", sw: "linear-gradient(135deg,#0e0c08,#5a4310 60%,#ffd24a)", need: 100 },
+  { id: "immortal", name: "Immortal", sym: "♾️", sw: "linear-gradient(135deg,#0c0716,#6a3cff 45%,#ff5fd2 75%,#3ad6ff)", need: 200 },
+];
+const SPORTS = [
+  ["Cricket", ""], ["Rugby League", "nrl super league state of origin"], ["Rugby Union", "super rugby six nations"],
+  ["AFL", "aussie rules australian football"], ["Soccer", "football epl premier league a-league"], ["Basketball", "nba nbl"],
+  ["Tennis", "atp wta"], ["Golf", "pga"], ["Horse Racing", "racing gallops thoroughbred"], ["Greyhound Racing", "dogs greyhounds"],
+  ["Harness Racing", "trots trotting"], ["American Football", "nfl gridiron"], ["Baseball", "mlb"], ["Ice Hockey", "nhl"],
+  ["Boxing", ""], ["MMA", "ufc mixed martial arts"], ["Darts", ""], ["Snooker", ""], ["Pool", "billiards"],
+  ["Formula 1", "f1 motor racing"], ["Motor Racing", "supercars indycar v8"], ["MotoGP", "motorbikes"], ["NASCAR", ""],
+  ["Speedway", ""], ["Cycling", "tour de france"], ["Esports", "gaming cs lol dota valorant"], ["Table Tennis", "ping pong"],
+  ["Badminton", ""], ["Volleyball", ""], ["Beach Volleyball", ""], ["Handball", ""], ["Netball", ""], ["Athletics", "track and field"],
+  ["Swimming", ""], ["Surfing", ""], ["Lacrosse", ""], ["Field Hockey", "hockey"], ["Gaelic Football", "gaa"], ["Hurling", "gaa"],
+  ["Futsal", ""], ["Water Polo", ""], ["Squash", ""], ["Lawn Bowls", "bowls"], ["Chess", ""], ["Politics", "election"],
+  ["Novelty", "entertainment tv awards specials"], ["Skiing", "winter sports"], ["Rowing", ""], ["Sailing", ""], ["Triathlon", ""],
+  ["Wrestling", "wwe"], ["Kabaddi", ""], ["Softball", ""], ["Curling", ""], ["Floorball", ""], ["Bandy", ""],
+].map(([name, alias]) => ({ name, alias }));
+const SPORT_NAMES = new Set(SPORTS.map(s => s.name).concat("Other"));
+
+/* =========================================================
+   Storage: the signed-in account (see cloud.js). The old on-device
+   save is still read once, to offer importing it.
+   ========================================================= */
+function uid() { return Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4); }
+function newTracker(n) {
+  return { id: uid(), name: "Tracker " + n, accent: ACCENTS[(n - 1) % ACCENTS.length], start: 100, target: 100000, oddsMode: "auto", fixedOdds: 1.05,
+    bets: [], actions: [], targetEdits: [], paused: false, createdAt: Date.now() };
+}
+function normalise(s) {
+  s.trackers.forEach((t, i) => {
+    t.actions = t.actions || []; t.targetEdits = t.targetEdits || []; t.paused = !!t.paused;
+    t.accent = t.accent || ACCENTS[i % ACCENTS.length];
+    t.bets.forEach(b => { b.edits = b.edits || []; });
+  });
+  if (s.view && !s.page) s.page = s.view === "overview" ? "trackers" : "home";
+  delete s.view;
+  s.page = PAGES.includes(s.page) ? s.page : "home"; s.recentSports = s.recentSports || []; s.skin = s.skin || "dark";
+  s.achievements = s.achievements || {}; s.bestStreak = s.bestStreak || 0;
+  if (!s.trackers.some(t => t.id === s.activeId)) s.activeId = s.trackers[0].id;
+  return s;
+}
+const UI_KEY = "streak-charger.ui";
+function deviceState() {
+  try {
+    const raw = localStorage.getItem(KEY);
+    if (raw) { const s = JSON.parse(raw); if (s && Array.isArray(s.trackers) && s.trackers.length) return normalise(s); }
+  } catch (e) {}
+  return null;
+}
+function freshState() { const t = newTracker(1); return normalise({ trackers: [t], activeId: t.id }); }
+let storageOk = true, localMode = false;
+// Every change still calls save(). Signed in, it queues a sync of whatever changed; the page
+// and selected tab stay on this device. Without Supabase keys it falls back to the old device save.
+function save() {
+  if (!state) return;
+  try { localStorage.setItem(UI_KEY, JSON.stringify({ page: state.page, activeId: state.activeId, skin: state.skin })); } catch (e) {}
+  if (!localMode) return Cloud.queue(state, profileStreak());
+  try { localStorage.setItem(KEY, JSON.stringify(state)); storageOk = true; }
+  catch (e) { if (storageOk) toast("This browser isn't letting the app save. Changes will be lost when you close it."); storageOk = false; }
+}
+let state = null;
+const samplePromise = (window.claude && window.claude.use) ? window.claude.use("sample").catch(() => null) : Promise.resolve(null);
+try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch (e) {}
+
+/* =========================================================
+   Maths
+   ========================================================= */
+const active = () => state.trackers.find(t => t.id === state.activeId);
+const tierFor = s => { let t = TIERS[0]; for (const x of TIERS) if (s >= x.min) t = x; return t; };
+const nextTier = t => TIERS[t.idx + 1] || null;
+const riskFor = o => { let r = null; for (const x of RISKS) if (o >= x.min) r = x; return r; };
+const geoMean = arr => Math.exp(arr.reduce((a, o) => a + Math.log(o), 0) / arr.length);
+const RECENT = 10;
+function typicalOdds(bets) {
+  const o = bets.slice(-RECENT).map(b => b.odds).sort((a, b) => a - b), m = o.length >> 1;
+  return o.length % 2 ? o[m] : (o[m - 1] + o[m]) / 2;
+}
+// Forecast odds: the median of the last 10 bets, so one rare big-odds bet doesn't swing "wins to go".
+function avgOdds(t) { return t.oddsMode === "auto" && t.bets.length ? typicalOdds(t.bets) : t.fixedOdds; }
+function winsNeeded(balance, target, odds) {
+  if (balance >= target) return 0;
+  if (!(odds > 1) || !(balance > 0)) return Infinity;
+  return Math.max(1, Math.ceil(Math.log(target / balance) / Math.log(odds) - 1e-9));
+}
+function fracFor(streak, bal, target, odds) {
+  if (bal >= target) return 1;
+  const rem = winsNeeded(bal, target, odds), tot = streak + rem;
+  return isFinite(tot) && tot > 0 ? streak / tot : 0;
+}
+function compute(t) {
+  const odds = avgOdds(t);
+  const ev = t.bets.map(b => ({ k: "bet", at: b.createdAt, b })).concat(t.actions.map(a => ({ k: a.type, at: a.at, a }))).sort((x, y) => x.at - y.at);
+  let bal = t.start, streak = 0, banked = 0, deposited = t.start, lost = 0, maxStreak = 0, peak = t.start;
+  const newRun = (n, at) => ({ n, startAt: at, bets: [], steps: [], maxStreak: 0, peak: t.start, end: null, points: [{ i: 0, bal: t.start }] });
+  let run = newRun(1, t.createdAt);
+  const runs = [], rows = {}, acts = {};
+  for (const e of ev) {
+    if (e.k === "bet") {
+      const b = e.b, stake = bal, potential = stake * b.odds;
+      const row = { stake, potential, run: run.n, betInRun: run.bets.length + 1 };
+      run.bets.push(b);
+      if (b.result === "win") {
+        bal = potential; streak++; maxStreak = Math.max(maxStreak, streak); run.maxStreak = Math.max(run.maxStreak, streak);
+        peak = Math.max(peak, bal); run.peak = Math.max(run.peak, bal);
+        run.steps.push({ type: "win", b, bal, streak }); run.points.push({ i: run.bets.length, bal, r: "win" });
+      } else if (b.result === "loss") {
+        lost += stake; row.endedRun = true;
+        run.steps.push({ type: "loss", b, bal: 0, streak: 0 }); run.points.push({ i: run.bets.length, bal: stake, r: "loss" });
+        run.end = { reason: "loss", at: b.settledAt || b.createdAt, streak, lostStake: stake };
+        runs.push(run); run = newRun(run.n + 1, b.settledAt || b.createdAt); bal = t.start; deposited += t.start; streak = 0;
+      }
+      row.streakAfter = streak; row.balAfter = bal;
+      rows[b.id] = row;
+    } else if (e.k === "bank") {
+      const amt = Math.max(0, Math.min(e.a.amount, bal));
+      bal -= amt; banked += amt; acts[e.a.id] = { amt, run: run.n };
+      run.steps.push({ type: "bank", amt, bal, streak }); run.points.push({ i: run.bets.length, bal, r: "bank" });
+    } else if (e.k === "end") {
+      banked += bal; acts[e.a.id] = { amt: bal, run: run.n, streak };
+      run.steps.push({ type: "end", amt: bal, bal: 0, streak });
+      run.end = { reason: "ended", at: e.at, streak, cashed: bal };
+      runs.push(run); run = newRun(run.n + 1, e.at); bal = t.start; deposited += t.start; streak = 0;
+    }
+  }
+  const last = t.bets[t.bets.length - 1];
+  const pendingBet = last && last.result === "pending" ? last : null;
+  const remaining = winsNeeded(bal, t.target, odds);
+  const total = streak + remaining;
+  const reached = bal >= t.target;
+  const frac = fracFor(streak, bal, t.target, odds);
+  return { balance: bal, streak, banked, deposited, lost, maxStreak, peak, runs, current: run, rows, acts, odds, remaining, total, frac, reached,
+    pending: !!pendingBet, pendingBet, risk: pendingBet ? riskFor(pendingBet.odds) : null, tier: tierFor(streak) };
+}
+
+/* =========================================================
+   Formatting
+   ========================================================= */
+function money(n) {
+  if (!isFinite(n)) return "–";
+  const big = Math.abs(n) >= 10000;
+  const s = Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: big ? 0 : 2, maximumFractionDigits: big ? 0 : 2 });
+  return (n < 0 ? "−$" : "$") + s;
+}
+function moneyShort(n) {
+  const a = Math.abs(n), sg = n < 0 ? "−" : "";
+  if (a >= 1e9) return sg + "$" + (a / 1e9).toLocaleString("en-US", { maximumFractionDigits: 2 }) + "B";
+  if (a >= 1e6) return sg + "$" + (a / 1e6).toLocaleString("en-US", { maximumFractionDigits: 2 }) + "M";
+  if (a >= 1e4) return sg + "$" + (a / 1e3).toLocaleString("en-US", { maximumFractionDigits: 1 }) + "k";
+  return money(n);
+}
+const odds2 = o => Number(o).toFixed(2);
+const pct = (x, d = 0) => isFinite(x) ? (x * 100).toFixed(d) + "%" : "–";
+function chance(p) {
+  if (!(p > 0)) return "0%";
+  if (p >= 0.995) return "99%+";
+  if (p >= 0.01) return pct(p, p < 0.1 ? 1 : 0);
+  const n = 1 / p;
+  return "1 in " + (n >= 1e6 ? (n / 1e6).toLocaleString("en-US", { maximumFractionDigits: 1 }) + " million" : Math.round(n).toLocaleString("en-US"));
+}
+function esc(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+function when(ts) { const d = new Date(ts); return d.toLocaleDateString(undefined, { day: "numeric", month: "short" }) + ", " + d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }); }
+function day(ts) { return new Date(ts).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }); }
+function dur(ms) {
+  if (!isFinite(ms) || ms < 0) return "–";
+  const m = Math.round(ms / 6e4);
+  if (m < 60) return Math.max(1, m) + "m";
+  const h = Math.floor(m / 60);
+  if (h < 48) return h + "h " + (m % 60) + "m";
+  return Math.round(h / 24) + " days";
+}
+const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+const winsText = n => n === Infinity ? "set odds above 1.00" : plural(n, "win");
+// How many times each tier has been reached: one per run (across every tracker, current runs included)
+// whose best streak got there. Cached per render because it walks every tracker.
+let tcCache = null;
+function tierCount(tr) {
+  if (!tcCache) {
+    tcCache = TIERS.map(() => 0);
+    for (const t of state.trackers) { const s = compute(t); for (const r of s.runs.concat([s.current])) TIERS.forEach((x, i) => { if (r.maxStreak >= x.min) tcCache[i]++; }); }
+  }
+  return tr.min > 0 ? tcCache[tr.idx] || 0 : 0;
+}
+// The tier emoji with a small counter on its top-right showing how many times that tier has been reached.
+const tierSym = (tr, show = true) => { const n = show ? tierCount(tr) : 0; return n ? `<span class="tsym has" title="Reached ${n} time${n === 1 ? "" : "s"}">${tr.sym}<sup class="tcount">${n > 99 ? "99+" : n}</sup></span>` : tr.sym; };
+const tierBadge = (tr, label, count = true) => `<span class="tb ${tr.badge}" style="--tc:${tr.c2};--tc2:${tr.c1}">${tierSym(tr, count)} ${label ?? tr.name}</span>`;
+function num(v) { const n = parseFloat(String(v).replace(/[$,\s]/g, "")); return isFinite(n) ? n : NaN; }
+
+/* =========================================================
+   Ring
+   ========================================================= */
+let gid = 0;
+// Arc reactor ring: a glowing neon tube in a recessed bezel, with energy flowing through the lit part
+// and a flare at its head. Win slots sit outside it; ticks light up behind the charge. Inside, a glass
+// core and the next-tier ring.
+// On the Light theme the pale neon tints wash out against white, so the reactor switches to
+// deeper versions of the tier colours and swaps its white highlights for dark ink.
+const shade = (hex, k) => "#" + [1, 3, 5].map(i => Math.round(parseInt(hex.slice(i, i + 2), 16) * (1 - k)).toString(16).padStart(2, "0")).join("");
+const onLight = () => document.documentElement.dataset.skin === "light";
+const inkTier = t => onLight() ? { ...t, c1: shade(t.c2, .05), c2: shade(t.c2, .35) } : t;
+function ringSVG(o) {
+  const id = "g" + (++gid);
+  const lt = onLight();
+  const col = inkTier(o.reached ? GOLD : o.tier);
+  const f = o.from ?? o.frac, off = C * (1 - f);
+  const glow = Math.max(4, (o.tier.fx.glow || 4) * .7);
+  const slots = [];
+  if (isFinite(o.total) && o.total > 1 && o.total <= 72) {
+    const won = Math.round(o.frac * o.total);
+    for (let i = 0; i < o.total; i++) {
+      const a = ((i + .5) / o.total) * 2 * Math.PI - Math.PI / 2, lit = i < won;
+      slots.push(`<circle cx="${(120 + Math.cos(a) * 116).toFixed(2)}" cy="${(120 + Math.sin(a) * 116).toFixed(2)}" r="${o.total > 40 ? 1.4 : 2}" fill="${lit ? col.c1 : "var(--track)"}"${lit ? ` style="filter:drop-shadow(0 0 2px ${col.c1})"` : ""}/>`);
+    }
+  }
+  let ticks = "", lit = "";
+  for (let i = 0; i < 60; i++) {
+    const a = i / 60 * 2 * Math.PI - Math.PI / 2, r1 = i % 5 ? 89 : 92;
+    const l = `<line x1="${(120 + Math.cos(a) * 85).toFixed(1)}" y1="${(120 + Math.sin(a) * 85).toFixed(1)}" x2="${(120 + Math.cos(a) * r1).toFixed(1)}" y2="${(120 + Math.sin(a) * r1).toFixed(1)}"/>`;
+    if (i / 60 < o.frac) lit += l; else ticks += l;
+  }
+  return `<svg viewBox="0 0 240 240" aria-hidden="true">
+    <defs>
+      <linearGradient id="${id}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${col.c1}"/><stop offset="1" stop-color="${col.c2}"/></linearGradient>
+      <radialGradient id="${id}c" cx=".5" cy=".42" r=".6"><stop offset="0" stop-color="${col.c1}" stop-opacity=".32"/><stop offset=".7" stop-color="${col.c2}" stop-opacity=".1"/><stop offset="1" stop-color="${col.c2}" stop-opacity="0"/></radialGradient>
+      <linearGradient id="${id}b" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".08"/><stop offset=".5" stop-color="#fff" stop-opacity=".02"/><stop offset="1" stop-color="#fff" stop-opacity=".08"/></linearGradient>
+      <filter id="${id}f" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="${glow}"/></filter>
+      <mask id="${id}m" maskUnits="userSpaceOnUse" x="0" y="0" width="240" height="240"><circle class="ring-arc" cx="120" cy="120" r="${R}" fill="none" stroke="#fff" stroke-width="9" stroke-dasharray="${C}" stroke-dashoffset="${off}" transform="rotate(-90 120 120)"/></mask>
+    </defs>
+    <g class="risk-halo"><circle cx="120" cy="120" r="119" fill="none" stroke="var(--rc, transparent)" stroke-width="3"/></g>
+    <circle cx="120" cy="120" r="66" fill="url(#${id}c)" class="re-core"/>
+    <circle cx="120" cy="120" r="66" fill="none" stroke="url(#${id}b)" stroke-width="1"/>
+    <g class="re-spin"><circle cx="120" cy="120" r="81" fill="none" stroke="${col.c1}" stroke-opacity=".3" stroke-width="1.2" stroke-dasharray="2 7"/></g>
+    ${tierRing(o, id)}
+    <g stroke="var(--track)" stroke-width="1.3">${ticks}</g>
+    <g stroke="${lt ? col.c2 : col.c1}" stroke-width="1.5" stroke-opacity="${lt ? .9 : .75}">${lit}</g>
+    ${slots.join("")}
+    <circle cx="120" cy="120" r="${R}" fill="none" stroke="var(--track)" stroke-width="14"/>${lt ? `<circle cx="120" cy="120" r="${R}" fill="none" stroke="#1b2333" stroke-opacity=".06" stroke-width="14"/>` : ""}
+    <circle cx="120" cy="120" r="${R}" fill="none" stroke="url(#${id}b)" stroke-width="14"/>
+    <circle cx="120" cy="120" r="${R - 7.5}" fill="none" stroke="#000" stroke-opacity=".35" stroke-width="1"/>
+    <circle cx="120" cy="120" r="${R + 7.5}" fill="none" stroke="#fff" stroke-opacity=".08" stroke-width="1"/>
+    <circle class="shock" cx="120" cy="120" r="${R}" fill="none" stroke="${col.c1}" stroke-width="3"/>
+    <circle class="ring-arc ring-glow" cx="120" cy="120" r="${R}" fill="none" stroke="url(#${id})" stroke-width="13" stroke-linecap="round" stroke-dasharray="${C}" stroke-dashoffset="${off}" transform="rotate(-90 120 120)" filter="url(#${id}f)"/>
+    <circle class="ring-arc" cx="120" cy="120" r="${R}" fill="none" stroke="url(#${id})" stroke-width="${lt ? 9 : 8}" stroke-linecap="round" stroke-dasharray="${C}" stroke-dashoffset="${off}" transform="rotate(-90 120 120)"/>
+    <circle class="ring-arc" cx="120" cy="120" r="${R}" fill="none" stroke="#fff" stroke-opacity="${lt ? .4 : .55}" stroke-width="2" stroke-linecap="round" stroke-dasharray="${C}" stroke-dashoffset="${off}" transform="rotate(-90 120 120)"/>
+    <g mask="url(#${id}m)"><circle class="re-flow" cx="120" cy="120" r="${R}" fill="none" stroke="#fff" stroke-opacity=".7" stroke-width="4" stroke-linecap="round" stroke-dasharray="1.5 19.5" transform="rotate(-90 120 120)"/></g>
+    <g class="ring-head" style="transform:rotate(${f * 360}deg);${f > 0 ? "" : "opacity:0"}">
+      <circle cx="120" cy="${120 - R}" r="12" fill="${col.c1}" filter="url(#${id}f)"/>
+      <g class="re-flare" style="transform-origin:120px ${120 - R}px"><path d="M120 ${120 - R - 13} L121.2 ${120 - R - 1.2} L133 ${120 - R} L121.2 ${120 - R + 1.2} L120 ${120 - R + 13} L118.8 ${120 - R + 1.2} L107 ${120 - R} L118.8 ${120 - R - 1.2} Z" fill="${lt ? col.c2 : "#fff"}" opacity=".9"/></g>
+      <circle cx="120" cy="${120 - R}" r="4.5" fill="#fff"${lt ? ` stroke="${col.c2}" stroke-width="2"` : ""}/>
+    </g>
+  </svg>`;
+}
+// Inner ring at r=68: progress from the current tier to the next one, in the next tier's colours,
+// with that tier's symbol riding the head. Falls back to the old spinning dashes when there is no next tier.
+const TR = 73, TC = 2 * Math.PI * TR;
+function tierRing(o, id) {
+  const nx = nextTier(o.tier), next = nx && inkTier(nx);
+  if (o.streak == null || !next || o.reached)
+    return `<g class="re-spin rev"><circle cx="120" cy="120" r="${TR}" fill="none" stroke="${(o.reached ? GOLD : o.tier).c2}" stroke-opacity=".45" stroke-width="3" stroke-dasharray="30 14"/></g>`;
+  const f = Math.min(1, Math.max(0, (o.streak - o.tier.min) / (next.min - o.tier.min)));
+  const a = f * 2 * Math.PI - Math.PI / 2, hx = (120 + Math.cos(a) * TR).toFixed(1), hy = (120 + Math.sin(a) * TR).toFixed(1);
+  return `<defs><linearGradient id="${id}t" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${next.c1}"/><stop offset="1" stop-color="${next.c2}"/></linearGradient></defs>
+    <circle cx="120" cy="120" r="${TR}" fill="none" stroke="var(--track)" stroke-width="3" stroke-dasharray="2 4"/>
+    <circle class="tier-arc" cx="120" cy="120" r="${TR}" fill="none" stroke="url(#${id}t)" stroke-width="3.5" stroke-linecap="round" stroke-dasharray="${TC}" stroke-dashoffset="${TC * (1 - f)}" transform="rotate(-90 120 120)" style="--tc:${TC}"/>
+    <g class="tier-mark"><circle cx="${hx}" cy="${hy}" r="8" fill="var(--bg)" stroke="${next.c1}" stroke-width="1.5" style="filter:drop-shadow(0 0 4px ${next.c2})"/><text x="${hx}" y="${hy}" text-anchor="middle" dominant-baseline="central" font-size="9">${next.sym}</text></g>`;
+}
+function setRing(root, frac, { duration = .9, delay = 0 } = {}) {
+  root.querySelectorAll(".ring-arc").forEach(el => {
+    el.style.transitionDuration = duration + "s"; el.style.transitionDelay = delay + "s";
+    el.setAttribute("stroke-dashoffset", C * (1 - frac));
+  });
+  root.querySelectorAll(".ring-head").forEach(el => {
+    el.style.transitionDuration = duration + "s"; el.style.transitionDelay = delay + "s";
+    el.style.transform = `rotate(${frac * 360}deg)`; el.style.opacity = frac > 0 ? 1 : 0;
+  });
+}
+
+/* Particle effects drawn around the ring for each tier */
+const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+let fxLoop = null;
+function stopFx() { if (fxLoop) { cancelAnimationFrame(fxLoop.raf); fxLoop = null; } }
+function startFx(wrap, tier, gold) {
+  stopFx();
+  const f = gold ? { sparkles: "#fff3b0", sc: 24, halo: ["#f5c518", "#fff6c2", "#b8860b", "#f5c518"], flames: ["#fff6c2", "#e8a90c"], fl: 1 } : tier.fx;
+  if (reduced || !(f.flames || f.sparkles || f.comet || f.orbiters || f.halo || f.burst || f.lightning)) return;
+  const cv = document.createElement("canvas"); cv.className = "ring-canvas"; wrap.prepend(cv);
+  const ctx = cv.getContext("2d");
+  let W = 0, rr = 0;
+  const size = () => { const r = cv.getBoundingClientRect(); const d = devicePixelRatio || 1; W = r.width; cv.width = W * d; cv.height = W * d; ctx.setTransform(d, 0, 0, d, 0, 0); rr = W / 1.44 * (R / 240); };
+  size();
+  const ps = [], orb = Array.from({ length: f.orbiters || 0 }, (_, i) => ({ a: Math.random() * 6.28, sp: (.004 + Math.random() * .012) * (i % 2 ? 1 : -1), d: 1.18 + Math.random() * .3, s: 1 + Math.random() * 2 }));
+  let t0 = performance.now(), comet = 0, lastBurst = 0, bolts = [];
+  const loop = { raf: 0 };
+  fxLoop = loop;
+  function frame(now) {
+    if (!cv.isConnected) return stopFx();
+    const t = (now - t0) / 1000, cx = W / 2, cy = W / 2;
+    ctx.clearRect(0, 0, W, W);
+    if (f.halo && ctx.createConicGradient) {
+      const g = ctx.createConicGradient(t * .6, cx, cy);
+      f.halo.forEach((c, i) => g.addColorStop(i / (f.halo.length - 1), c));
+      ctx.save(); ctx.globalAlpha = .38 + .12 * Math.sin(t * 2); ctx.strokeStyle = g; ctx.lineWidth = rr * .3; ctx.filter = "blur(10px)";
+      ctx.beginPath(); ctx.arc(cx, cy, rr * 1.12, 0, 6.283); ctx.stroke(); ctx.restore();
+    }
+    if (f.burst && now - lastBurst > 2200) { lastBurst = now; ps.push({ k: "ring", r: rr, life: 1 }); }
+    if (f.flames) for (let i = 0; i < 3 * f.fl; i++) {
+      const a = Math.random() * 6.283;
+      ps.push({ k: "flame", x: cx + Math.cos(a) * rr * 1.08, y: cy + Math.sin(a) * rr * 1.08, vx: Math.cos(a) * .5, vy: Math.sin(a) * .5 - .9 - Math.random() * 1.1 * f.fl, s: (3 + Math.random() * 5) * Math.min(1.6, .7 + f.fl * .4), life: 1 });
+    }
+    if (f.sparkles && Math.random() < f.sc / 60) {
+      const a = Math.random() * 6.283, d = rr * (1.05 + Math.random() * .3);
+      ps.push({ k: "spark", x: cx + Math.cos(a) * d, y: cy + Math.sin(a) * d, s: 2 + Math.random() * 4, life: 1 });
+    }
+    if (f.lightning && Math.random() < .03) {
+      const a = Math.random() * 6.283, b = a + (Math.random() - .5) * 1.4, pts = [];
+      for (let i = 0; i <= 8; i++) { const ang = a + (b - a) * i / 8, d = rr * (1.12 + (Math.random() - .5) * .14); pts.push([cx + Math.cos(ang) * d, cy + Math.sin(ang) * d]); }
+      bolts.push({ pts, life: 1 });
+    }
+    ctx.save(); ctx.globalCompositeOperation = "lighter";
+    for (let i = ps.length - 1; i >= 0; i--) {
+      const p = ps[i];
+      if (p.k === "flame") {
+        p.x += p.vx; p.y += p.vy; p.life -= .03; p.s *= .975;
+        const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.s * 2);
+        g.addColorStop(0, f.flames[0]); g.addColorStop(.5, f.flames[1]); g.addColorStop(1, "transparent");
+        ctx.globalAlpha = Math.max(0, p.life) * .7; ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.x, p.y, p.s * 2, 0, 6.283); ctx.fill();
+      } else if (p.k === "spark") {
+        p.life -= .02; const s = p.s * Math.sin(Math.max(0, p.life) * Math.PI);
+        ctx.globalAlpha = Math.max(0, p.life); ctx.fillStyle = f.sparkles;
+        ctx.beginPath(); ctx.moveTo(p.x, p.y - s * 2); ctx.lineTo(p.x + s * .4, p.y); ctx.lineTo(p.x, p.y + s * 2); ctx.lineTo(p.x - s * .4, p.y); ctx.closePath(); ctx.fill();
+        ctx.beginPath(); ctx.moveTo(p.x - s * 2, p.y); ctx.lineTo(p.x, p.y + s * .4); ctx.lineTo(p.x + s * 2, p.y); ctx.lineTo(p.x, p.y - s * .4); ctx.closePath(); ctx.fill();
+      } else if (p.k === "ring") {
+        p.r += 1.6; p.life -= .014; ctx.globalAlpha = Math.max(0, p.life) * .8; ctx.strokeStyle = f.burst; ctx.lineWidth = 3 * p.life;
+        ctx.beginPath(); ctx.arc(cx, cy, p.r, 0, 6.283); ctx.stroke();
+      }
+      if (p.life <= 0) ps.splice(i, 1);
+    }
+    for (let i = bolts.length - 1; i >= 0; i--) {
+      const b = bolts[i]; b.life -= .08; ctx.globalAlpha = Math.max(0, b.life); ctx.strokeStyle = f.lightning; ctx.lineWidth = 2; ctx.shadowColor = f.lightning; ctx.shadowBlur = 12;
+      ctx.beginPath(); b.pts.forEach((q, j) => j ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1])); ctx.stroke(); ctx.shadowBlur = 0;
+      if (b.life <= 0) bolts.splice(i, 1);
+    }
+    for (const o of orb) {
+      o.a += o.sp; ctx.globalAlpha = .9; ctx.fillStyle = "#fff"; ctx.shadowColor = tier.c2; ctx.shadowBlur = 10;
+      ctx.beginPath(); ctx.arc(cx + Math.cos(o.a) * rr * o.d, cy + Math.sin(o.a) * rr * o.d, o.s, 0, 6.283); ctx.fill(); ctx.shadowBlur = 0;
+    }
+    if (f.comet) {
+      comet += .022;
+      for (let j = 0; j < 26; j++) {
+        const a = comet - j * .035, d = rr * 1.2;
+        ctx.globalAlpha = (1 - j / 26) * .85; ctx.fillStyle = f.comet;
+        ctx.beginPath(); ctx.arc(cx + Math.cos(a) * d, cy + Math.sin(a) * d, Math.max(.5, 5 * (1 - j / 26)), 0, 6.283); ctx.fill();
+      }
+    }
+    ctx.restore();
+    loop.raf = requestAnimationFrame(frame);
+  }
+  loop.raf = requestAnimationFrame(frame);
+  addEventListener("resize", size, { once: true });
+}
+
+/* =========================================================
+   Achievements
+   ========================================================= */
+const ACH = [
+  { id: "first_bet", e: "🎟️", n: "First ticket", d: "Log your first bet" },
+  { id: "first_win", e: "✅", n: "First win", d: "Win a bet" },
+  { id: "hat_trick", e: "🎩", n: "Hat trick", d: "Reach a 3-win streak" },
+  { id: "comeback", e: "🔄", n: "Comeback kid", d: "Win the very next bet after a loss" },
+  { id: "night_owl", e: "🦉", n: "Night owl", d: "Log a bet between midnight and 5am" },
+  { id: "early_bird", e: "🐦", n: "Early bird", d: "Log a bet between 5am and 7am" },
+  { id: "ice_cold", e: "🧊", n: "Ice cold", d: "Win a bet at odds under 1.03" },
+  { id: "iron_nerves", e: "💀", n: "Iron nerves", d: "Win a Super risky bet (2.00–3.00)" },
+  { id: "big_swing", e: "🎰", n: "Big swing", d: "Win an All in bet (over 3.00)" },
+  { id: "frog", e: "🐸", n: "Off the lily pad", d: "Reach Frog (5 wins)" },
+  { id: "blazing", e: "🔥", n: "On fire", d: "Reach Blazing (20 wins)" },
+  { id: "comet", e: "☄️", n: "Shooting star", d: "Reach Comet (50 wins)" },
+  { id: "thousand", e: "💵", n: "Four figures", d: "Run a balance past $1,000" },
+  { id: "tenk", e: "💰", n: "Five figures", d: "Run a balance past $10,000" },
+  { id: "target", e: "🏁", n: "Target smashed", d: "Reach a tracker's target" },
+  { id: "banker", e: "🏦", n: "Banker", d: "Bank some profit" },
+  { id: "cash_out", e: "🧳", n: "Walk away winner", d: "End a run with more than you started" },
+  { id: "phoenix", e: "🐦‍🔥", n: "Phoenix", d: "Lose a run of 10+ wins and go again" },
+  { id: "patient", e: "⏳", n: "Patience", d: "Win a bet that was pending for 3+ days" },
+  { id: "globetrotter", e: "🌍", n: "Globetrotter", d: "Bet on 5 different sports" },
+  { id: "juggler", e: "🤹", n: "Juggler", d: "Run 3 trackers at once" },
+  { id: "century", e: "💯", n: "Century", d: "Log 100 bets" },
+];
+function evalAchievements() {
+  const got = {};
+  const mark = (id, at) => { if (!got[id] || at < got[id]) got[id] = at; };
+  let allBets = 0; const sports = new Map();
+  if (state.trackers.length >= 3) mark("juggler", state.trackers[2].createdAt);
+  let best = 0;
+  for (const t of state.trackers) {
+    const s = compute(t);
+    best = Math.max(best, s.maxStreak);
+    let prev = null;
+    for (const b of t.bets) {
+      const r = s.rows[b.id], st = b.settledAt || b.createdAt, h = new Date(b.createdAt).getHours();
+      allBets++; if (allBets === 100) mark("century", b.createdAt);
+      if (!sports.has(b.sport)) { sports.set(b.sport, b.createdAt); if (sports.size === 5) mark("globetrotter", b.createdAt); }
+      mark("first_bet", b.createdAt);
+      if (h < 5) mark("night_owl", b.createdAt);
+      if (h >= 5 && h < 7) mark("early_bird", b.createdAt);
+      if (b.result === "win") {
+        mark("first_win", st);
+        if (prev === "loss") mark("comeback", st);
+        if (b.odds < 1.03) mark("ice_cold", st);
+        if (b.odds >= 2 && b.odds <= 3) mark("iron_nerves", st);
+        if (b.odds > 3) mark("big_swing", st);
+        if (b.settledAt && b.settledAt - b.createdAt >= 3 * DAY) mark("patient", st);
+        if (r.streakAfter >= 3) mark("hat_trick", st);
+        if (r.streakAfter >= 5) mark("frog", st);
+        if (r.streakAfter >= 20) mark("blazing", st);
+        if (r.streakAfter >= 50) mark("comet", st);
+        if (r.balAfter >= 1000) mark("thousand", st);
+        if (r.balAfter >= 10000) mark("tenk", st);
+        if (r.balAfter >= t.target) mark("target", st);
+      }
+      if (b.result !== "pending") prev = b.result;
+    }
+    for (const run of s.runs) {
+      if (run.end.reason === "loss" && run.end.streak >= 10) mark("phoenix", run.end.at);
+      if (run.end.reason === "ended" && run.end.cashed > t.start) mark("cash_out", run.end.at);
+    }
+    for (const a of t.actions) if (a.type === "bank") mark("banker", a.at);
+  }
+  state.bestStreak = Math.max(state.bestStreak || 0, best);
+  const fresh = [];
+  for (const [id, at] of Object.entries(got)) if (!state.achievements[id]) { state.achievements[id] = at; fresh.push(id); }
+  return fresh;
+}
+function announce(fresh) {
+  fresh.forEach((id, i) => { const a = ACH.find(x => x.id === id); if (a) setTimeout(() => toast(`${a.e} Unlocked: ${a.n}`, "ach"), 1800 + i * 2200); });
+}
+
+/* =========================================================
+   Rendering
+   ========================================================= */
+const $ = s => document.querySelector(s);
+const NAV = [
+  { id: "home", n: "Home", ic: '<path d="M4 11 12 4l8 7"/><path d="M6 10v9h12v-9"/><path d="M10 19v-5h4v5"/>' },
+  { id: "stats", n: "Stats", ic: '<path d="M5 20V12M12 20V5M19 20v-8"/>' },
+  { id: "friends", n: "Friends", ic: '<circle cx="9" cy="8" r="3.2"/><path d="M3 19c.6-3.4 3-5.2 6-5.2s5.4 1.8 6 5.2"/><circle cx="17" cy="9" r="2.5"/><path d="M16.5 13.9c2.4.2 4 1.8 4.5 4.6"/>' },
+  { id: "leaderboard", n: "Leaders", ic: '<path d="M8 20V11h8v9"/><path d="M3 20v-5h5M16 20v-7h5v7"/><path d="M2 20h20"/><path d="m12 3 1.2 2.4 2.6.4-1.9 1.8.5 2.6L12 9l-2.4 1.2.5-2.6-1.9-1.8 2.6-.4z"/>' },
+  { id: "chat", n: "Chat", ic: '<path d="M5 5h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-8l-5 4v-4H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z"/>' },
+];
+const PAGES = ["home", "trackers", "stats", "planner", "awards", "friends", "leaderboard", "chat", "profile"];
+// Which bottom tab lights up for each page.
+const navOf = p => ({ trackers: "home", planner: "stats", awards: "stats", profile: "" }[p] ?? p);
+const SUBNAV = [["stats", "Stats"], ["planner", "Planner"], ["awards", "Awards"]];
+let previewSkin = null;
+function applySkin() { document.documentElement.dataset.skin = previewSkin || state.skin; }
+function setAccent(c) {
+  document.documentElement.style.setProperty("--accent", c);
+  const lum = parseInt(c.slice(1, 3), 16) * .299 + parseInt(c.slice(3, 5), 16) * .587 + parseInt(c.slice(5, 7), 16) * .114;
+  document.documentElement.style.setProperty("--on-accent", lum > 140 ? "#0b0e12" : "#ffffff");
+}
+function go(page) { state.page = page; save(); render(); scrollTo(0, 0); }
+function renderNav() {
+  $("#nav").innerHTML = NAV.map(n => `<button data-nav="${n.id}" class="${navOf(state.page) === n.id ? "on" : ""}" aria-label="${n.n}"><svg viewBox="0 0 24 24">${n.ic}</svg>${n.n}</button>`).join("");
+}
+function renderTabs() {
+  const show = state.page === "home" || state.page === "stats" || state.page === "trackers";
+  $("#tabs").hidden = !show;
+  if (!show) return;
+  $("#tabs").innerHTML = state.trackers.map(t => {
+    const s = compute(t);
+    return `<button class="tab ${t.id === state.activeId ? "active" : ""}" data-tab="${t.id}"><span class="dot" style="background:${t.accent}"></span>${esc(t.name)}${t.paused ? " ⏸" : s.pending ? " ⏳" : ""}</button>`;
+  }).join("") + `<button class="tab" data-add aria-label="Add tracker">＋</button><button class="tab ic ${state.page === "trackers" ? "active" : ""}" data-nav="trackers" aria-label="All trackers"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="2"/><rect x="13" y="4" width="7" height="7" rx="2"/><rect x="4" y="13" width="7" height="7" rx="2"/><rect x="13" y="13" width="7" height="7" rx="2"/></svg></button>`;
+  const act = $("#tabs .tab.active"); if (act) act.scrollIntoView({ inline: "nearest", block: "nearest" });
+}
+function render(anim) {
+  stopFx();
+  if (!state) return;
+  tcCache = null; applySkin(); renderNav(); renderTabs(); renderMe();
+  const t = active();
+  setAccent(state.page === "home" || state.page === "stats" ? t.accent : ACCENTS[0]);
+  $("#fabBar").hidden = state.page !== "home";
+  ({ home: renderHome, trackers: renderTrackers, stats: renderStats, planner: renderPlanner, awards: renderAwards, profile: renderProfile,
+     friends: () => renderSoon("friends"), leaderboard: () => renderSoon("leaderboard"), chat: () => renderSoon("chat") })[state.page](anim);
+  // Stats, Planner and Awards share the Stats tab, with a switcher on top.
+  if (SUBNAV.some(x => x[0] === state.page)) $("#view").insertAdjacentHTML("afterbegin", `<div class="seg subnav">${SUBNAV.map(([id, n]) => `<button data-nav="${id}" class="${state.page === id ? "on" : ""}">${n}</button>`).join("")}</div>`);
+}
+
+/* ---------- Home ---------- */
+function renderHome(anim) {
+  const t = active(), s = compute(t);
+  const nt = nextTier(s.tier);
+  const pv = previewSkin && SKINS.find(k => k.id === previewSkin);
+  const shown = s.tier; // the badge and ring always show the live tier; themes only change colours
+  const autoNote = t.oddsMode === "auto" ? (t.bets.length ? `last ${Math.min(RECENT, t.bets.length)} bets` : "until your first bet") : "fixed";
+  const targetEdited = t.targetEdits.length > 0;
+  $("#view").innerHTML = `
+    ${pv ? `<div class="glass pv-bar"><div>👀 <b>Previewing the ${pv.name} theme.</b> Your tier and numbers are real. It unlocks at ${pv.need} wins in a row.</div><button data-stoppreview>Stop</button></div>` : ""}
+    <div class="head">
+      <div style="min-width:0">
+        <div class="eyebrow">Run ${s.current.n} ${tierBadge(shown)}</div>
+        <h1>${esc(t.name)}</h1>
+      </div>
+      <button class="ghost" id="optBtn">Options</button>
+    </div>
+    <div class="ring-wrap ${s.reached ? "gold" : ""} ${shown.fx.pulse ? "pulse" : ""} ${t.paused ? "paused" : ""}" id="ring"
+      ${s.risk && !t.paused ? `data-risk="${s.risk.lvl}" style="--rc:${s.risk.c};--rdur:${s.risk.dur}s"` : ""}>
+      ${ringSVG({ ...s, tier: shown, from: anim && anim.from != null ? anim.from : undefined })}
+      <div class="ring-center">
+        <div class="bal">${money(s.balance)}</div>
+        <div class="of">of ${money(t.target)}${targetEdited ? ` <span class="edited">edited</span>` : ""}</div>
+        <div class="streak"><span>${tierSym(shown)}</span><span>${plural(s.streak, "win")}</span></div>
+        ${t.paused ? `<div class="pause-pill">⏸ Run paused</div>` : `<div class="togo">${s.reached ? "🏆 Target reached" : winsText(s.remaining) + " to go"}</div>`}
+      </div>
+    </div>
+    ${s.risk && !t.paused ? `<div class="glass risk-banner" style="--rc:${s.risk.c}"><span class="big">${s.risk.sym}</span><div style="min-width:0"><b>${s.risk.name}</b><div class="s">${esc(s.pendingBet.text)} @ ${odds2(s.pendingBet.odds)} · ${money(s.balance)} on the line</div></div></div>` : ""}
+    <div class="glass stats">
+      <div class="stat"><div class="k">Typical odds</div><div class="v">${odds2(s.odds)}</div><div class="s">${autoNote}</div></div>
+      <div class="stat"><div class="k">${nt ? "Next tier" : "Top tier"}</div><div class="v">${nt ? nt.sym + " " + (nt.min - s.streak) : "♾️"}</div><div class="s">${nt ? `${plural(nt.min - s.streak, "win")} to ${nt.name}` : "nothing above"}</div></div>
+      <div class="stat"><div class="k">Banked</div><div class="v" style="color:var(--gold)">${moneyShort(s.banked)}</div><div class="s">safe from losses</div></div>
+    </div>
+    <div class="section-h"><h2>History</h2><span>Permanent · tap a bet to settle or edit</span></div>
+    <div class="list">${historyHTML(t, s)}</div>`;
+  const ring = $("#ring");
+  startFx(ring, shown, s.reached);
+  $("#optBtn").onclick = () => openOptions(t);
+  document.querySelectorAll("[data-bet]").forEach(el => el.onclick = () => openBet(t, el.dataset.bet));
+  const fab = $("#fab");
+  fab.disabled = false;
+  if (t.paused) { fab.textContent = "Run paused · resume in Options"; fab.onclick = () => openOptions(t); }
+  else if (s.pending) { fab.textContent = "Settle the pending bet"; fab.onclick = () => openBet(t, s.pendingBet.id); }
+  else { fab.textContent = `Log a bet · stake ${moneyShort(s.balance)}`; fab.onclick = () => openNewBet(t); }
+  if (anim) runAnim(anim, s, ring);
+}
+function historyHTML(t, s) {
+  if (!t.bets.length && !t.actions.length) return `<div class="empty">No bets yet. Tap <b>Log a bet</b> to stake your ${money(t.start)} starting balance on the first leg.</div>`;
+  const items = t.bets.map(b => ({ at: b.createdAt, b })).concat(t.actions.map(a => ({ at: a.at, a }))).sort((x, y) => y.at - x.at);
+  const now = Date.now();
+  return items.map(({ b, a }) => {
+    if (a) {
+      const x = s.acts[a.id];
+      if (a.type === "bank") return `<div class="act">🏦 <span>Banked <b>${money(x ? x.amt : a.amount)}</b> · ${when(a.at)}</span></div>`;
+      if (a.type === "end") return `<div class="run-break ok">Run ${x ? x.run : ""} ended · cashed out ${money(x ? x.amt : 0)}</div>`;
+      if (a.type === "pause") return `<div class="act">⏸ <span>Run paused · ${when(a.at)}</span></div>`;
+      if (a.type === "resume") return `<div class="act">▶️ <span>Run resumed · ${when(a.at)}</span></div>`;
+      if (a.type === "target") return `<div class="act">🎯 <span>Target changed ${money(a.from)} → <b>${money(a.to)}</b> · ${when(a.at)} <span class="edited">edited</span></span></div>`;
+      return "";
+    }
+    const r = s.rows[b.id], rk = riskFor(b.odds);
+    const icon = b.result === "win" ? "✅" : b.result === "loss" ? "❌" : "⏳";
+    const right = b.result === "win" ? `+${moneyShort(r.potential - r.stake)}<small>→ ${moneyShort(r.potential)}</small>`
+      : b.result === "loss" ? `−${moneyShort(r.stake)}<small>run reset</small>` : `${moneyShort(r.potential)}<small>to win</small>`;
+    const locked = now - b.createdAt > DAY;
+    return (r.endedRun ? `<div class="run-break">Run ${r.run} ended</div>` : "") +
+      `<button class="glass bet ${b.result}" data-bet="${b.id}">
+        <div class="ic">${icon}</div>
+        <div class="main"><div class="t">${esc(b.text || b.sport)}</div>
+          <div class="m"><span>${esc(b.sport)}</span><span>@ ${odds2(b.odds)}</span>${b.result === "pending" && rk ? `<span class="riskchip" style="--rc:${rk.c}">${rk.sym} ${rk.name}</span>` : ""}<span>· ${when(b.createdAt)}</span>
+          ${b.edits.length ? `<span class="edited">edited</span>` : ""}${locked ? `<span title="Details locked">🔒</span>` : ""}${b.link ? `<span>🔗</span>` : ""}</div></div>
+        <div class="r">${right}</div></button>`;
+  }).join("");
+}
+
+/* ---------- Trackers overview ---------- */
+function renderTrackers() {
+  $("#view").innerHTML = `
+    <div class="head" style="padding-top:18px"><div><div class="eyebrow">${plural(state.trackers.length, "tracker")}</div><h1>All trackers</h1></div></div>
+    <div class="ov-grid">
+      ${state.trackers.map(t => { const s = compute(t); return `
+        <button class="glass ov-card ${t.id === state.activeId ? "active" : ""}" data-open="${t.id}">
+          ${ringSVG(s)}
+          <div class="n"><span class="dot" style="width:8px;height:8px;border-radius:50%;background:${t.accent};flex:none"></span>${esc(t.name)}</div>
+          <div class="b">${moneyShort(s.balance)}</div>
+          <div class="st">${tierSym(s.tier)} ${plural(s.streak, "win")}${t.paused ? " · ⏸" : s.pending ? ` · ${s.risk ? s.risk.sym : "⏳"}` : ""}</div>
+          <div class="st">${s.reached ? "🏆 target hit" : winsText(s.remaining) + " to go"}</div>
+          ${s.banked ? `<div class="st" style="color:var(--gold)">🏦 ${moneyShort(s.banked)} banked</div>` : ""}
+        </button>`; }).join("")}
+      <button class="glass ov-card add" data-add><span>＋</span>New tracker</button>
+    </div>
+    <div class="section-h"><h2>${localMode ? "Saved on this device" : "Synced to your account"}</h2></div>
+    <div class="glass card">
+      <div class="cap" style="margin-bottom:12px">${localMode ? "Everything is saved in this browser. Add your Supabase keys to config.js to sync it to an account." : "Everything you log saves to your account automatically, so it's on every device you log in on. You can still copy a backup any time."}</div>
+      <div class="row2"><button class="btn sec" id="bkCopy">Copy backup</button><button class="btn sec" id="bkRestore">Import backup</button></div>
+    </div>`;
+  document.querySelectorAll("[data-open]").forEach(el => el.onclick = () => { state.activeId = el.dataset.open; go("home"); });
+  $("#bkCopy").onclick = copyBackup;
+  $("#bkRestore").onclick = openRestore;
+}
+function copyBackup() {
+  const txt = JSON.stringify(state);
+  const done = () => toast("Backup copied. Paste it somewhere safe, like your notes.");
+  try { navigator.clipboard.writeText(txt).then(done, () => showBackup(txt)); } catch (e) { showBackup(txt); }
+}
+function showBackup(txt) {
+  const sh = openSheet(`<h3>Your backup</h3><div class="sub">Select all of this text and copy it somewhere safe.</div><div class="field"><textarea id="bkText" readonly></textarea></div>`);
+  const ta = sh.querySelector("#bkText"); ta.value = txt; ta.focus(); ta.select();
+}
+function openRestore() {
+  const sh = openSheet(`<h3>Import backup</h3><div class="sub">Paste a backup you copied earlier. Its trackers and bets are added to your account. Nothing already logged is removed or changed.</div>
+    <div class="field"><textarea id="rsText" placeholder="Paste backup here"></textarea></div><div class="err" id="rsErr"></div><button class="btn" id="rsGo">Import</button>`);
+  sh.querySelector("#rsGo").onclick = () => {
+    let s;
+    try { s = JSON.parse(sh.querySelector("#rsText").value); } catch (e) { return sh.querySelector("#rsErr").textContent = "That doesn't look like a backup. Paste the whole copied text."; }
+    if (!s || !Array.isArray(s.trackers) || !s.trackers.length) return sh.querySelector("#rsErr").textContent = "That backup has no trackers in it.";
+    closeSheet(); importData(s, "backup");
+  };
+}
+
+/* ---------- Stats ---------- */
+function lineChart({ lines, xmin = 0, xmax, ymin, ymax, log, yTicks, yFmt, xLabel, h = 180 }) {
+  const w = 340, l = 46, r = 10, tp = 10, b = 28;
+  const X = x => l + (xmax === xmin ? 0 : (x - xmin) / (xmax - xmin)) * (w - l - r);
+  const Y = y => { const v = log ? (Math.log(Math.max(y, ymin)) - Math.log(ymin)) / (Math.log(ymax) - Math.log(ymin)) : (y - ymin) / (ymax - ymin); return tp + (1 - v) * (h - tp - b); };
+  const xt = []; const step = Math.max(1, Math.ceil((xmax - xmin) / 6));
+  for (let x = xmin; x <= xmax; x += step) xt.push(x);
+  let out = `<svg class="chart" viewBox="0 0 ${w} ${h}" role="img">`;
+  yTicks.forEach(y => { out += `<line x1="${l}" x2="${w - r}" y1="${Y(y)}" y2="${Y(y)}" stroke="var(--stroke)"/><text x="${l - 6}" y="${Y(y) + 3}" text-anchor="end">${yFmt(y)}</text>`; });
+  xt.forEach(x => { out += `<text x="${X(x)}" y="${h - 12}" text-anchor="middle">${x}</text>`; });
+  if (xLabel) out += `<text x="${(l + w - r) / 2}" y="${h - 1}" text-anchor="middle">${xLabel}</text>`;
+  for (const ln of lines) {
+    const d = ln.pts.map((p, i) => `${i ? "L" : "M"}${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join(" ");
+    if (ln.area) out += `<path d="${d} L${X(ln.pts[ln.pts.length - 1][0])},${Y(ymin)} L${X(ln.pts[0][0])},${Y(ymin)} Z" fill="${ln.color}" opacity=".12"/>`;
+    out += `<path d="${d}" fill="none" stroke="${ln.color}" stroke-width="2.2" ${ln.dash ? 'stroke-dasharray="5 4"' : ""} stroke-linejoin="round"/>`;
+    if (ln.dots) ln.pts.forEach(p => { if (p[2]) out += `<circle cx="${X(p[0])}" cy="${Y(p[1])}" r="3.4" fill="${p[2]}" stroke="var(--bg)" stroke-width="1"/>`; });
+  }
+  return out + `</svg>`;
+}
+function logTicks(lo, hi) {
+  const t = []; for (let p = Math.floor(Math.log10(lo)); p <= Math.ceil(Math.log10(hi)); p++) { const v = Math.pow(10, p); if (v >= lo * .999 && v <= hi * 1.001) t.push(v); }
+  if (t.length < 2) { t.length = 0; t.push(lo, hi); }
+  return t;
+}
+const axisMoney = v => v >= 1e6 ? "$" + +(v / 1e6).toFixed(1) + "M" : v >= 1e3 ? "$" + +(v / 1e3).toFixed(1) + "k" : "$" + +v.toFixed(2);
+let statsRun = null, statsRunT = null, statsAllRuns = false;
+// The Stats page is a list of cards the person picks and orders in "Customise". Each card computes
+// from a shared context (built once per render) and returns its inner HTML, or "" to hide when empty.
+const median = a => { if (!a.length) return NaN; const o = a.slice().sort((x, y) => x - y), m = o.length >> 1; return o.length % 2 ? o[m] : (o[m - 1] + o[m]) / 2; };
+const signed = (n, f = moneyShort) => (n >= 0 ? "+" : "−") + f(Math.abs(n)).replace(/^[−-]/, "");
+const needMore = (n, msg) => `<div class="cap">${msg || `Settle ${plural(n, "more bet")} to see this.`}</div>`;
+// One row: label, actual rate as a bar coloured by whether it beats the odds, and the odds-implied rate as a tick.
+const cmpBar = (label, w, n, exp, c) => { const act = w / n; return `<div class="barrow"><div class="lbl">${label}</div><div class="bartrack"><div class="barfill" style="width:${act * 100}%;background:${act >= exp ? c.cWin : c.cLoss}"></div><div class="barexp" style="left:calc(${exp * 100}% - 1px)"></div></div><div class="num">${pct(act)}<small>${w}/${n}</small></div></div>`; };
+const expOf = bs => bs.reduce((a, b) => a + 1 / b.odds, 0) / bs.length;
+const tileH = (k, v, sub, cls = "") => `<div class="tile"><div class="k">${k}</div><div class="v ${cls}">${v}</div><div class="s">${sub}</div></div>`;
+
+const STAT_WIDGETS = [
+  { id: "winrate", name: "Win rate", group: "Performance", desc: "How often you win against what the odds said you should.",
+    render: c => `<h3>Win rate</h3><div class="cap">${c.settled.length} settled bets</div><div class="tiles">
+      ${tileH("Actual", pct(c.actWR, 1), `${c.wins.length} won of ${c.settled.length}`, c.actWR >= c.expWR ? "win" : "loss")}
+      ${tileH("Expected", pct(c.expWR, 1), "implied by the odds you took")}</div>
+      ${c.settled.length ? `<div class="cap" style="margin:10px 0 0">${c.actWR >= c.expWR ? "You're beating" : "You're behind"} what the odds predicted by ${pct(Math.abs(c.actWR - c.expWR), 1)}.</div>` : ""}` },
+  { id: "luck", name: "Luck or skill?", group: "Performance", desc: "Whether your results are normal variance or something more.",
+    render: c => {
+      if (c.settled.length < 5) return `<h3>Luck or skill?</h3>${needMore(5 - c.settled.length)}`;
+      const E = c.settled.reduce((a, b) => a + 1 / b.odds, 0), sd = Math.sqrt(c.settled.reduce((a, b) => a + (1 / b.odds) * (1 - 1 / b.odds), 0)) || 1;
+      const d = c.wins.length - E, z = d / sd, pos = Math.max(0, Math.min(100, (z + 3) / 6 * 100));
+      const verdict = z <= -2 ? "Well below the odds. That's more than bad luck, so look at how you're picking." : z <= -1 ? "Running cold, but still inside normal swings." : z < 1 ? "Right where the odds say. Nothing unusual yet." : z < 2 ? "Running hot. Could be skill, could be a good patch." : "Well above the odds. Either a real edge or a very hot streak.";
+      return `<h3>Luck or skill?</h3><div class="cap">Your wins against the odds' expectation, in standard swings.</div>
+        <div class="gauge"><div class="gz"></div><i style="left:${pos}%"></i></div><div class="gauge-l"><span>Cold</span><span>Normal</span><span>Hot</span></div>
+        <div class="tiles" style="margin-top:10px">${tileH("Wins vs expected", (d >= 0 ? "+" : "") + d.toFixed(1), `${c.wins.length} won, ${E.toFixed(1)} expected`, d >= 0 ? "win" : "loss")}${tileH("Swing size", z.toFixed(1) + "σ", "how unusual that is")}</div>
+        <div class="cap" style="margin:10px 0 0">${verdict}${c.settled.length < 100 ? ` With ${c.settled.length} bets this can still change a lot; around 100+ bets tells you much more.` : ""}</div>`;
+    } },
+  { id: "form", name: "Recent form", group: "Performance", desc: "Your last 20 results and how the last 10 compare with your overall record.",
+    render: c => {
+      if (!c.settled.length) return `<h3>Recent form</h3>${needMore(1)}`;
+      const last = c.settled.slice(-20), l10 = c.settled.slice(-10), w10 = l10.filter(b => b.result === "win").length;
+      const o10 = median(l10.map(b => b.odds)), oAll = median(c.settled.map(b => b.odds));
+      return `<h3>Recent form</h3><div class="cap">Oldest on the left, newest on the right.</div>
+        <div class="form">${last.map(b => `<span class="${b.result}" title="${esc(b.text)} @ ${odds2(b.odds)}">${b.result === "win" ? "W" : "L"}</span>`).join("")}</div>
+        <div class="tiles" style="margin-top:10px">${tileH("Last 10", pct(w10 / l10.length), `vs ${pct(c.actWR)} overall`, w10 / l10.length >= c.actWR ? "win" : "loss")}${tileH("Typical odds, last 10", odds2(o10), `vs ${odds2(oAll)} overall`)}</div>`;
+    } },
+  { id: "breakeven", name: "Break-even check", group: "Performance", desc: "The win rate you need at your typical odds, and whether you're hitting it.",
+    render: c => {
+      const need = 1 / c.s.odds, real = need / 1.05;
+      return `<h3>Break-even check</h3><div class="cap">At typical odds of ${odds2(c.s.odds)}.</div><div class="tiles">
+        ${tileH("You need", pct(need, 1), "to win just to stay level")}${tileH("You win", pct(c.actWR, 1), c.settled.length ? `${c.actWR >= need ? "above" : "below"} the line` : "no bets yet", c.settled.length ? (c.actWR >= need ? "win" : "loss") : "")}</div>
+        <div class="cap" style="margin:10px 0 0">Bookmakers build in a margin of around 5%, so the true chance of each bet landing is nearer ${pct(real, 1)} than ${pct(need, 1)}. To profit long term you need to beat the odds, not just match them.</div>`;
+    } },
+  { id: "bands", name: "By odds range", group: "Performance", desc: "Win rate in each odds band against what those odds implied.",
+    render: c => {
+      const rows = ODDS_BANDS.map(bd => { const bs = c.settled.filter(b => b.odds >= bd.lo && b.odds < bd.hi); return bs.length ? cmpBar(`${bd.sym} ${bd.name}`, bs.filter(b => b.result === "win").length, bs.length, expOf(bs), c) : ""; }).join("");
+      return `<h3>By odds range</h3><div class="cap">Bar is your actual win rate. The white tick is what the odds implied.</div>${rows ? `<div class="bars">${rows}</div>` : needMore(1)}`;
+    } },
+  { id: "sport", name: "By sport", group: "Performance", desc: "Record, win rate and edge for each sport you bet on.",
+    render: c => {
+      const sp = new Map();
+      for (const b of c.settled) { const x = sp.get(b.sport) || { n: 0, w: 0, o: [], e: 0 }; x.n++; if (b.result === "win") x.w++; x.o.push(b.odds); x.e += 1 / b.odds; sp.set(b.sport, x); }
+      const rows = [...sp.entries()].sort((a, b) => b[1].n - a[1].n).map(([n, x]) => { const edge = x.w / x.n - x.e / x.n; return `<tr><td>${esc(n)}</td><td>${x.w}–${x.n - x.w}</td><td>${pct(x.w / x.n)}</td><td>${odds2(geoMean(x.o))}</td><td style="color:${edge >= 0 ? "var(--win)" : "var(--loss)"}">${edge >= 0 ? "+" : "−"}${pct(Math.abs(edge))}</td></tr>`; }).join("");
+      return `<h3>By sport</h3><div class="cap">Edge is your win rate minus what the odds implied. Green sports are where you're beating the bookie.</div>
+        ${rows ? `<div class="tbl-wrap"><table><thead><tr><th>Sport</th><th>W–L</th><th>Win %</th><th>Odds</th><th>Edge</th></tr></thead><tbody>${rows}</tbody></table></div>` : needMore(1)}`;
+    } },
+  { id: "weekday", name: "Best days", group: "Patterns", desc: "Win rate by the day of the week you placed the bet.",
+    render: c => {
+      const names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+      const rows = names.map((n, i) => { const bs = c.settled.filter(b => (new Date(b.createdAt).getDay() + 6) % 7 === i); return bs.length ? cmpBar(n, bs.filter(b => b.result === "win").length, bs.length, expOf(bs), c) : ""; }).join("");
+      return `<h3>Best days</h3><div class="cap">Bar is your win rate; the tick is what the odds implied.</div>${rows ? `<div class="bars">${rows}</div>` : needMore(1)}`;
+    } },
+  { id: "hours", name: "Time of day", group: "Patterns", desc: "Win rate by the time of day you placed the bet.",
+    render: c => {
+      const B = [["🌙 Night", 0, 6], ["🌅 Morning", 6, 12], ["☀️ Afternoon", 12, 18], ["🌆 Evening", 18, 24]];
+      const rows = B.map(([n, a, z]) => { const bs = c.settled.filter(b => { const h = new Date(b.createdAt).getHours(); return h >= a && h < z; }); return bs.length ? cmpBar(n, bs.filter(b => b.result === "win").length, bs.length, expOf(bs), c) : ""; }).join("");
+      return `<h3>Time of day</h3><div class="cap">Late-night bets are often the weakest. Check yours.</div>${rows ? `<div class="bars">${rows}</div>` : needMore(1)}`;
+    } },
+  { id: "creep", name: "Odds creep", group: "Patterns", desc: "Whether you take riskier odds as a run gets bigger.",
+    render: c => {
+      const G = [["Bets 1–5", 1, 5], ["Bets 6–10", 6, 10], ["Bets 11–15", 11, 15], ["Bets 16+", 16, 1e9]];
+      const groups = G.map(([n, a, z]) => ({ n, bs: c.settled.filter(b => { const k = c.s.rows[b.id]?.betInRun; return k >= a && k <= z; }) })).filter(g => g.bs.length);
+      if (groups.length < 2) return `<h3>Odds creep</h3>${needMore(0, "Needs bets from deeper into a run to compare.")}`;
+      const meds = groups.map(g => median(g.bs.map(b => b.odds))), mx = Math.max(...meds);
+      const rise = meds[meds.length - 1] / meds[0] - 1;
+      return `<h3>Odds creep</h3><div class="cap">Typical odds you take at each stage of a run.</div><div class="bars">
+        ${groups.map((g, i) => `<div class="barrow"><div class="lbl">${g.n}</div><div class="bartrack"><div class="barfill" style="width:${(meds[i] - 1) / (mx - 1 || 1) * 100}%;background:${riskFor(meds[i])?.c || c.cWin}"></div></div><div class="num">${odds2(meds[i])}<small>${g.bs.length} bets</small></div></div>`).join("")}</div>
+        <div class="cap" style="margin:10px 0 0">${rise > .05 ? `You take ${pct(rise)} higher odds late in runs, right when there's the most on the line.` : rise < -.05 ? `You get more careful as runs grow, taking ${pct(-rise)} shorter odds late on. That's the safer habit.` : "Your odds stay steady through a run. Good discipline."}</div>`;
+    } },
+  { id: "tilt", name: "Pace after losses", group: "Patterns", desc: "How quickly you start again after a loss, a common sign of chasing.",
+    render: c => {
+      const bets = c.t.bets, gaps = [], firstOdds = [];
+      bets.forEach((b, i) => { if (b.result === "loss" && bets[i + 1]) { gaps.push(bets[i + 1].createdAt - (b.settledAt || b.createdAt)); firstOdds.push(bets[i + 1].odds); } });
+      if (!gaps.length) return `<h3>Pace after losses</h3>${needMore(0, "Shows up after your first loss.")}`;
+      const quick = gaps.filter(g => g < 10 * 6e4).length;
+      return `<h3>Pace after losses</h3><div class="cap">The gap between a loss and your next bet.</div><div class="tiles">
+        ${tileH("Typical restart", dur(median(gaps)), `after ${gaps.length} loss${gaps.length === 1 ? "" : "es"}`)}${tileH("Within 10 min", `${quick} of ${gaps.length}`, "quick restarts", quick / gaps.length > .5 ? "loss" : "")}
+        ${tileH("Odds after a loss", odds2(median(firstOdds)), `vs ${odds2(c.s.odds)} typical`, median(firstOdds) > c.s.odds * 1.05 ? "loss" : "")}</div>
+        <div class="cap" style="margin:10px 0 0">${quick / gaps.length > .5 ? "Most of your restarts are fast. Taking a break after a loss helps you avoid chasing it." : "You usually take a breather after a loss. That's a good habit."}</div>`;
+    } },
+  { id: "bust", name: "Where runs end", group: "Runs", desc: "Which bet in a run tends to be the one that loses.",
+    render: c => {
+      const lossRuns = c.finished.filter(r => r.end.reason === "loss");
+      if (!lossRuns.length) return `<h3>Where runs end</h3>${needMore(0, "No runs have ended on a loss yet.")}`;
+      const pos = lossRuns.map(r => r.bets.length), M = Math.max(...pos), cnt = Array.from({ length: M }, (_, i) => pos.filter(p => p === i + 1).length), top = Math.max(...cnt);
+      const early = pos.filter(p => p <= 3).length / pos.length, worst = cnt.indexOf(top) + 1;
+      return `<h3>Where runs end</h3><div class="cap">How many runs died on each bet number.</div>
+        <div class="hist">${cnt.map((n, i) => `<div title="Bet ${i + 1}: ${n}"><i style="height:${n / top * 100}%"></i><span>${(i + 1) % (M > 20 ? 5 : 1) === 0 || i === 0 ? i + 1 : ""}</span></div>`).join("")}</div>
+        <div class="cap" style="margin:10px 0 0">${pct(early)} of losing runs ended within the first 3 bets. The most common killer is bet ${worst}.</div>`;
+    } },
+  { id: "survival", name: "Survival", group: "Runs", desc: "Share of your runs that reached each streak length, against the odds.",
+    render: c => {
+      const M = Math.max(5, c.s.maxStreak + 1), surv = [], expS = [];
+      for (let k = 0; k <= M; k++) { surv.push([k, c.allRuns.filter(r => r.maxStreak >= k).length / c.allRuns.length * 100]); expS.push([k, Math.pow(1 / c.s.odds, k) * 100]); }
+      return `<h3>Survival</h3><div class="cap">Share of your runs that reached each streak length, against what the average odds predict.</div>
+        ${lineChart({ lines: [{ pts: expS, color: c.cMuted, dash: true }, { pts: surv, color: c.t.accent, area: true }], xmax: M, ymin: 0, ymax: 100, yTicks: [0, 25, 50, 75, 100], yFmt: v => v + "%", xLabel: "wins in a row" })}
+        <div class="legend"><span><i style="background:${c.t.accent}"></i>Your runs</span><span><i style="background:${c.cMuted}"></i>Expected at ${odds2(c.s.odds)}</span></div>`;
+    } },
+  { id: "balance", name: "Balance by run", group: "Runs", desc: "Chart of each run's balance, plus replays of finished runs.",
+    render: c => {
+      const { t, allRuns, cWin, cLoss, cGold } = c, run = allRuns[statsRun];
+      const pts = run.points.map(p => [p.i, Math.max(p.bal, .01), p.r === "win" ? cWin : p.r === "loss" ? cLoss : p.r === "bank" ? cGold : null]);
+      const vals = pts.map(p => p[1]).concat(t.start), lo = Math.max(.01, Math.min(...vals) * .8), hi = Math.max(...vals, t.start * 1.5) * 1.15;
+      const chart = lineChart({ lines: [{ pts: pts.filter((p, i) => !(i === pts.length - 1 && run.end && run.end.reason === "loss")), color: t.accent, dots: true, area: true }], xmax: Math.max(1, run.bets.length), ymin: lo, ymax: hi, log: true, yTicks: logTicks(lo, hi), yFmt: axisMoney, xLabel: "bet in run" });
+      // Past 8 runs the chips get unwieldy, so switch to a dropdown.
+      const runOpts = allRuns.length > 8
+        ? `<select class="run-pick" id="runPick">${allRuns.map((r, i) => `<option value="${i}" ${i === statsRun ? "selected" : ""}>Run ${r.n}${r.end ? ` · ${plural(r.end.streak, "win")}` : " (now)"}</option>`).join("")}</select>`
+        : allRuns.map((r, i) => `<button class="chip ${i === statsRun ? "on" : ""}" data-run="${i}">Run ${r.n}${r.end ? "" : " (now)"}</button>`).join("");
+      const runList = c.finished.slice().reverse().slice(0, statsAllRuns ? Infinity : 8).map(r => `<div class="runrow"><div><b>Run ${r.n}</b> · ${tierFor(r.end.streak).sym} ${plural(r.end.streak, "win")} · ${r.end.reason === "loss" ? `<span style="color:var(--loss)">lost ${moneyShort(r.end.lostStake)}</span>` : `<span style="color:var(--gold)">cashed ${moneyShort(r.end.cashed)}</span>`}</div><button class="play" data-replay="${r.n - 1}">▶ Replay</button></div>`).join("");
+      return `<h3>Balance by run</h3><div class="cap">Log scale, so each win at the same odds climbs the same height.</div>
+        <div class="chips" style="margin-bottom:10px">${runOpts}</div>${chart}
+        <div class="legend"><span><i style="background:${cWin}"></i>Win</span><span><i style="background:${cLoss}"></i>Loss</span><span><i style="background:${cGold}"></i>Banked</span></div>
+        ${runList ? `<h4 class="minih">Finished runs</h4><div class="runs">${runList}</div>${c.finished.length > 8 ? `<button class="ghost" id="runsMore" style="margin-top:8px;width:100%">${statsAllRuns ? "Show fewer" : `Show all ${c.finished.length} runs`}</button>` : ""}` : ""}`;
+    } },
+  { id: "records", name: "Streak records", group: "Runs", desc: "Your longest, typical and current streaks.",
+    render: c => {
+      const ends = c.finished.map(r => r.end.streak);
+      return `<h3>Streak records</h3><div class="tiles">
+        ${tileH("Longest", plural(c.s.maxStreak, "win"), tierFor(c.s.maxStreak).name)}${tileH("Current", plural(c.s.streak, "win"), c.s.tier.name)}
+        ${tileH("Typical run", ends.length ? plural(Math.round(median(ends)), "win") : "–", "median of finished runs")}${tileH("Highest balance", moneyShort(c.s.peak), "at any point")}</div>`;
+    } },
+  { id: "tiers", name: "Tiers reached", group: "Runs", desc: "How many of your runs made it to each tier.",
+    render: c => {
+      const rows = TIERS.slice(1).filter(tr => tr.min <= Math.max(c.s.maxStreak + 5, 25)).map(tr => { const n = c.allRuns.filter(r => r.maxStreak >= tr.min).length, f = n / c.allRuns.length;
+        return `<div class="barrow"><div class="lbl">${tr.sym} ${tr.name}</div><div class="bartrack"><div class="barfill" style="width:${f * 100}%;background:linear-gradient(90deg,${tr.c2},${tr.c1})"></div></div><div class="num">${pct(f)}<small>${n} run${n === 1 ? "" : "s"}</small></div></div>`; }).join("");
+      return `<h3>Tiers reached</h3><div class="cap">Share of all your runs that reached each tier.</div><div class="bars">${rows}</div>`;
+    } },
+  { id: "peaks", name: "Peaks lost", group: "Money", desc: "How high your losing runs got before they reset, and what banking would have saved.",
+    render: c => {
+      const lr = c.finished.filter(r => r.end.reason === "loss" && r.peak > c.t.start);
+      if (!lr.length) return `<h3>Peaks lost</h3>${needMore(0, "No winning run has reset yet.")}`;
+      const peaks = lr.map(r => r.peak), half = lr.reduce((a, r) => a + (r.peak - c.t.start) / 2, 0);
+      return `<h3>Peaks lost</h3><div class="cap">The highest each losing run reached before it reset.</div><div class="tiles">
+        ${tileH("Biggest peak lost", moneyShort(Math.max(...peaks)), "one run")}${tileH("Typical peak lost", moneyShort(median(peaks)), plural(lr.length, "run"))}</div>
+        <div class="cap" style="margin:10px 0 0">If you had banked half your profit at each of those peaks, you'd have kept <b style="color:var(--gold)">${moneyShort(half)}</b>. Use Bank in Options to lock some in.</div>`;
+    } },
+  { id: "biggest", name: "Big moments", group: "Money", desc: "Your biggest win, biggest loss and boldest odds.",
+    render: c => {
+      if (!c.settled.length) return `<h3>Big moments</h3>${needMore(1)}`;
+      const r = b => c.s.rows[b.id], bigW = c.wins.reduce((a, b) => !a || r(b).potential - r(b).stake > r(a).potential - r(a).stake ? b : a, null);
+      const ls = c.settled.filter(b => b.result === "loss"), bigL = ls.reduce((a, b) => !a || r(b).stake > r(a).stake ? b : a, null);
+      const longW = c.wins.reduce((a, b) => !a || b.odds > a.odds ? b : a, null), shortL = ls.reduce((a, b) => !a || b.odds < a.odds ? b : a, null);
+      return `<h3>Big moments</h3><div class="tiles">
+        ${tileH("Biggest win", bigW ? "+" + moneyShort(r(bigW).potential - r(bigW).stake) : "–", bigW ? esc(bigW.text) : "none yet", "win")}${tileH("Biggest loss", bigL ? moneyShort(r(bigL).stake) : "–", bigL ? esc(bigL.text) : "none yet", "loss")}
+        ${tileH("Longest odds won", longW ? odds2(longW.odds) : "–", longW ? esc(longW.sport) : "none yet")}${tileH("Shortest odds lost", shortL ? odds2(shortL.odds) : "–", shortL ? "the one that hurt" : "none yet")}</div>`;
+    } },
+  { id: "money", name: "Money overview", group: "Money", desc: "What you've put in, lost, banked and your net position.",
+    render: c => {
+      const { s, t } = c, net = s.banked - s.deposited, netNow = s.banked + s.balance - s.deposited;
+      return `<h3>Money overview</h3><div class="cap">Includes resets and banked amounts.</div><div class="tiles">
+        ${tileH("Put in", moneyShort(s.deposited), `${plural(c.allRuns.length, "run")} × ${money(t.start)}`)}${tileH("Lost to resets", moneyShort(s.lost), plural(s.runs.filter(r => r.end.reason === "loss").length, "losing run"), "loss")}
+        ${tileH("Banked", moneyShort(s.banked), "profit taken + cash-outs", "gold")}${tileH("On the table", moneyShort(s.balance), "current run")}
+        ${tileH("Net (banked only)", signed(net), "banked − put in", net >= 0 ? "win" : "loss")}${tileH("Net if cashed out", signed(netNow), "incl. current balance", netNow >= 0 ? "win" : "loss")}</div>`;
+    } },
+  { id: "turnover", name: "Turnover", group: "Money", desc: "Total money staked and your return per $100 staked.",
+    render: c => {
+      const staked = c.settled.reduce((a, b) => a + c.s.rows[b.id].stake, 0), net = c.s.banked + c.s.balance - c.s.deposited;
+      return `<h3>Turnover</h3><div class="cap">Every bet re-stakes the whole balance, so far more money passes through than you put in.</div><div class="tiles">
+        ${tileH("Total staked", moneyShort(staked), plural(c.settled.length, "bet"))}${tileH("Return per $100", staked ? signed(net / staked * 100, money) : "–", "staked, if cashed out now", net >= 0 ? "win" : "loss")}</div>`;
+    } },
+  { id: "monthly", name: "Month by month", group: "Money", desc: "Put in, banked and net for each calendar month.",
+    render: c => {
+      const m = new Map(), key = ts => { const d = new Date(ts); return d.getFullYear() * 12 + d.getMonth(); }, row = k => m.get(k) || (m.set(k, { put: 0, bank: 0 }), m.get(k));
+      c.allRuns.forEach(r => row(key(r.startAt)).put += c.t.start);
+      c.t.actions.forEach(a => { const x = c.s.acts[a.id]; if (x && (a.type === "bank" || a.type === "end")) row(key(a.at)).bank += x.amt; });
+      const rows = [...m.entries()].sort((a, b) => b[0] - a[0]).map(([k, x]) => { const net = x.bank - x.put; return `<tr><td>${new Date(Math.floor(k / 12), k % 12).toLocaleDateString(undefined, { month: "short", year: "numeric" })}</td><td>${moneyShort(x.put)}</td><td>${moneyShort(x.bank)}</td><td style="color:${net >= 0 ? "var(--win)" : "var(--loss)"}">${signed(net)}</td></tr>`; }).join("");
+      return `<h3>Month by month</h3><div class="cap">Money in versus money banked. The current run's balance isn't counted until you bank it.</div>
+        <div class="tbl-wrap"><table><thead><tr><th>Month</th><th>Put in</th><th>Banked</th><th>Net</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    } },
+  { id: "time", name: "Time", group: "Habits", desc: "When you started, how often you bet and how long runs last.",
+    render: c => {
+      const { s, t, settled } = c, bets = t.bets, firstAt = bets.length ? bets[0].createdAt : null, days = firstAt ? Math.max(1, (Date.now() - firstAt) / DAY) : 0;
+      const st = settled.filter(b => b.settledAt).map(b => b.settledAt - b.createdAt), longest = c.finished.length ? Math.max(...c.finished.map(r => r.end.at - r.startAt)) : NaN;
+      return `<h3>Time</h3><div class="tiles">
+        ${tileH("Betting since", firstAt ? new Date(firstAt).toLocaleDateString(undefined, { day: "numeric", month: "short" }) : "–", firstAt ? plural(Math.floor(days), "day") + " ago" : "no bets yet")}
+        ${tileH("Bets per week", bets.length ? (bets.length / Math.max(1, days / 7)).toFixed(1) : "–", plural(bets.length, "bet") + " total")}
+        ${tileH("Avg time to settle", dur(st.length ? st.reduce((a, b) => a + b, 0) / st.length : NaN), "logged → result")}${tileH("Longest run", dur(longest), "finished runs")}
+        ${tileH("Current run", dur(Date.now() - s.current.startAt), plural(s.current.bets.length, "bet") + " so far")}${tileH("Bets today", bets.filter(b => Date.now() - b.createdAt < DAY).length, "last 24 hours")}</div>`;
+    } },
+  { id: "projection", name: "Projection", group: "Outlook", desc: "Your chances of reaching the target and what it's likely to cost.",
+    render: c => {
+      const { s, t } = c, nStart = winsNeeded(t.start, t.target, s.odds), p = 1 / s.odds, pRun = Math.pow(p, nStart), pNow = s.reached ? 1 : Math.pow(p, s.remaining), expRuns = 1 / pRun;
+      const useActual = c.settled.length >= 10 && c.actWR > 0, pRunAct = useActual ? Math.pow(Math.min(c.actWR, .999), nStart) : NaN;
+      return `<h3>Projection</h3><div class="cap">At typical odds ${odds2(s.odds)}.</div><div class="tiles">
+        ${tileH("Wins per run", winsText(nStart), `${money(t.start)} → ${moneyShort(t.target)}`)}${tileH("Chance per run", chance(pRun), "if the odds are fair")}
+        ${tileH("Expected resets", isFinite(expRuns) ? Math.max(0, Math.round(expRuns - 1)).toLocaleString("en-US") : "–", "before one run makes it")}${tileH("Expected cost", isFinite(expRuns) ? moneyShort(expRuns * t.start) : "–", "in starting balances", "loss")}
+        ${tileH("From right now", chance(pNow), s.reached ? "already there" : winsText(s.remaining) + " to go")}${tileH("At your win rate", useActual ? chance(pRunAct) : "–", useActual ? `using your ${pct(c.actWR)} per run` : "needs 10 settled bets")}</div>
+        <div class="cap" style="margin:10px 0 0">Bookmaker margins make the real chance a bit lower than fair odds suggest. The Planner lets you factor that in.</div>`;
+    } },
+];
+const STAT_DEFAULT = ["winrate", "luck", "form", "bands", "sport", "bust", "peaks", "tilt", "survival", "balance", "money", "projection"];
+function statsLayout() {
+  const L = state.statsLayout || (state.statsLayout = { order: STAT_WIDGETS.map(w => w.id), hidden: STAT_WIDGETS.filter(w => !STAT_DEFAULT.includes(w.id)).map(w => w.id) });
+  // Cards added in later versions join at the end, hidden, so a saved layout never changes on its own.
+  for (const w of STAT_WIDGETS) if (!L.order.includes(w.id)) { L.order.push(w.id); L.hidden.push(w.id); }
+  L.order = L.order.filter(id => STAT_WIDGETS.some(w => w.id === id));
+  return L;
+}
+
+function renderStats() {
+  const t = active(), s = compute(t);
+  const settled = t.bets.filter(b => b.result !== "pending"), wins = settled.filter(b => b.result === "win");
+  const allRuns = s.runs.concat([s.current]);
+  if (statsRun == null || statsRun >= allRuns.length || statsRunT !== t.id) { statsRun = allRuns.length - 1; statsRunT = t.id; }
+  const css = getComputedStyle(document.documentElement), cv = n => css.getPropertyValue(n).trim();
+  const c = { t, s, settled, wins, allRuns, finished: s.runs.filter(r => r.end),
+    expWR: settled.length ? expOf(settled) : NaN, actWR: settled.length ? wins.length / settled.length : NaN,
+    cWin: cv("--win"), cLoss: cv("--loss"), cGold: cv("--gold"), cMuted: cv("--muted"), cFg: cv("--fg") };
+  const L = statsLayout(), shown = L.order.filter(id => !L.hidden.includes(id)).map(id => STAT_WIDGETS.find(w => w.id === id));
+  $("#view").innerHTML = `
+    <div class="head"><div><div class="eyebrow">Stats · ${plural(settled.length, "settled bet")}</div><h1>${esc(t.name)}</h1></div><button class="ghost" id="statsEdit">⚙ Customise</button></div>
+    ${shown.map(w => `<div class="glass card stat-card" data-w="${w.id}"><span class="grp">${w.group}</span>${w.render(c)}</div>`).join("")}
+    ${shown.length ? "" : `<div class="glass card"><h3>No stats showing</h3><div class="cap">Tap Customise to pick the stats you want here.</div></div>`}
+    <button class="ghost" id="statsEdit2" style="display:block;margin:16px auto 0">⚙ Customise stats · ${shown.length} of ${STAT_WIDGETS.length} showing</button>`;
+  $("#statsEdit").onclick = $("#statsEdit2").onclick = openStatsMenu;
+  document.querySelectorAll("[data-run]").forEach(el => el.onclick = () => { statsRun = +el.dataset.run; statsRunT = t.id; renderStats(); });
+  document.querySelectorAll("[data-replay]").forEach(el => el.onclick = () => openReplay(t, +el.dataset.replay));
+  const rp = $("#runPick"); if (rp) rp.onchange = () => { statsRun = +rp.value; statsRunT = t.id; renderStats(); };
+  const rm = $("#runsMore"); if (rm) rm.onclick = () => { statsAllRuns = !statsAllRuns; renderStats(); };
+}
+
+// Customise sheet: tick a card to show it, drag the handle (or use the arrows) to reorder. Changes apply live.
+function openStatsMenu() {
+  const L = statsLayout();
+  const sh = openSheet(`<h3>Customise stats</h3><div class="sub">Tick the stats you want. Drag ☰ or use the arrows to change the order.</div>
+    <div class="sm-actions"><button class="chip" data-sm="all">Show all</button><button class="chip" data-sm="none">Hide all</button><button class="chip" data-sm="reset">Reset</button></div>
+    <div class="sm-list" id="smList"></div><button class="btn" id="smDone">Done</button>`);
+  const list = sh.querySelector("#smList");
+  const draw = () => {
+    list.innerHTML = L.order.map((id, i) => { const w = STAT_WIDGETS.find(x => x.id === id), on = !L.hidden.includes(id);
+      return `<div class="sm-row ${on ? "" : "off"}" data-id="${id}"><span class="sm-grip" aria-label="Drag to reorder">☰</span>
+        <label class="sm-main"><input type="checkbox" ${on ? "checked" : ""}><span><b>${w.name}</b><small>${w.group} · ${w.desc}</small></span></label>
+        <span class="sm-arrows"><button data-mv="-1" ${i ? "" : "disabled"} aria-label="Move up">▲</button><button data-mv="1" ${i < L.order.length - 1 ? "" : "disabled"} aria-label="Move down">▼</button></span></div>`; }).join("");
+  };
+  const commit = () => { save(); renderStats(); };
+  draw();
+  list.addEventListener("change", e => { const id = e.target.closest(".sm-row").dataset.id; L.hidden = e.target.checked ? L.hidden.filter(x => x !== id) : L.hidden.concat(id); e.target.closest(".sm-row").classList.toggle("off", !e.target.checked); commit(); });
+  list.addEventListener("click", e => { const b = e.target.closest("[data-mv]"); if (!b) return; const id = b.closest(".sm-row").dataset.id, i = L.order.indexOf(id), j = i + +b.dataset.mv;
+    [L.order[i], L.order[j]] = [L.order[j], L.order[i]]; draw(); commit(); list.querySelector(`[data-id="${id}"] [data-mv="${b.dataset.mv}"]`)?.focus(); });
+  sh.querySelectorAll("[data-sm]").forEach(b => b.onclick = () => {
+    if (b.dataset.sm === "all") L.hidden = []; else if (b.dataset.sm === "none") L.hidden = L.order.slice();
+    else { delete state.statsLayout; Object.assign(L, statsLayout()); }
+    draw(); commit(); });
+  sh.querySelector("#smDone").onclick = closeSheet;
+  // Drag to reorder with pointer events so it works with touch and mouse alike.
+  list.addEventListener("pointerdown", e => {
+    const grip = e.target.closest(".sm-grip"); if (!grip) return;
+    e.preventDefault(); const row = grip.closest(".sm-row"); row.classList.add("dragging");
+    let y0 = e.clientY;
+    const move = ev => {
+      row.style.transform = `translateY(${ev.clientY - y0}px)`;
+      const rows = [...list.children].filter(r => r !== row), mid = row.getBoundingClientRect().top + row.offsetHeight / 2;
+      const before = rows.find(r => { const b = r.getBoundingClientRect(); return mid < b.top + b.height / 2; });
+      if (before ? before !== row.nextSibling : row !== list.lastElementChild) {
+        // Moving the row in the list shifts its layout spot; move the drag origin with it so it stays under the finger.
+        const prev = row.offsetTop; list.insertBefore(row, before || null); y0 += row.offsetTop - prev;
+        row.style.transform = `translateY(${ev.clientY - y0}px)`;
+      }
+    };
+    // Listen on window: re-inserting the row drops pointer capture on the grip.
+    const up = () => { removeEventListener("pointermove", move); removeEventListener("pointerup", up); removeEventListener("pointercancel", up);
+      row.classList.remove("dragging"); row.style.transform = ""; L.order = [...list.children].map(r => r.dataset.id); draw(); commit(); };
+    addEventListener("pointermove", move); addEventListener("pointerup", up); addEventListener("pointercancel", up);
+  });
+}
+
+/* ---------- Planner ---------- */
+function renderPlanner() {
+  const t = active(), s = compute(t);
+  const pl = state.planner || (state.planner = { odds: odds2(s.odds), margin: 5 });
+  $("#view").innerHTML = `
+    <div class="head" style="padding-top:18px"><div><div class="eyebrow">Odds planner · ${esc(t.name)}</div><h1>What will it take?</h1></div></div>
+    <div class="glass card" style="margin-top:14px">
+      <div class="row2">
+        <div class="field"><label for="plOdds">Odds per bet</label><input id="plOdds" inputmode="decimal" value="${esc(pl.odds)}"></div>
+        <div class="field"><label for="plMargin">Bookie margin %</label><input id="plMargin" inputmode="decimal" value="${esc(pl.margin)}"></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label for="plStart">From</label><input id="plStart" inputmode="decimal" value="${esc(pl.start ?? t.start)}"></div>
+        <div class="field"><label for="plTarget">To</label><input id="plTarget" inputmode="decimal" value="${esc(pl.target ?? t.target)}"></div>
+      </div>
+      <div class="chips" style="margin-top:-4px"><button class="chip" id="plFromNow">Use current balance (${moneyShort(s.balance)})</button><button class="chip" id="plReset">Use tracker start</button></div>
+    </div>
+    <div class="glass card" id="plOut"></div>
+    <div class="glass card"><h3>Compare odds</h3><div class="cap">Same start and target, different odds.</div><div class="tbl-wrap" id="plTable"></div></div>`;
+  const calc = () => {
+    const o = num($("#plOdds").value), m = num($("#plMargin").value) || 0, st = num($("#plStart").value), tg = num($("#plTarget").value);
+    Object.assign(pl, { odds: $("#plOdds").value, margin: $("#plMargin").value, start: $("#plStart").value, target: $("#plTarget").value }); save();
+    const out = $("#plOut");
+    if (!(o > 1) || !(st > 0) || !(tg > st)) { out.innerHTML = `<div class="cap" style="margin:0">Enter odds above 1.00 and a target higher than the starting amount.</div>`; $("#plTable").innerHTML = ""; return; }
+    const n = winsNeeded(st, tg, o), pf = 1 / o, pm = pf / (1 + m / 100);
+    const P = Math.pow(pm, n), Pf = Math.pow(pf, n), rk = riskFor(o), tr = tierFor(n);
+    out.innerHTML = `
+      <div style="display:grid;gap:14px">
+        <div><div class="k">Wins in a row needed</div><div class="bigq">${n}</div><div class="s">ends at ${moneyShort(st * Math.pow(o, n))} · reaches ${tierBadge(tr, undefined, false)}</div></div>
+        <div><div class="k">Chance of making it</div><div class="bigq" style="color:${P > .1 ? "var(--win)" : P > .01 ? "var(--pend)" : "var(--loss)"}">${chance(P)}</div><div class="s">${chance(Pf)} with no margin</div></div>
+      </div>
+      <div class="cap" style="margin:12px 0 0">Each bet wins about ${pct(pm, 1)} of the time${rk ? `, rated ${rk.sym} ${rk.name}` : ""}. On average you'd go through ${Math.max(0, Math.round(1 / P - 1)).toLocaleString("en-US")} resets, costing about ${moneyShort(st / P)} in starting balances, before one run gets there.</div>`;
+    const list = [1.02, 1.05, 1.1, 1.2, 1.3, 1.5, 1.75, 2, 2.5, 3, 5];
+    $("#plTable").innerHTML = `<table><thead><tr><th>Odds</th><th>Risk</th><th>Wins</th><th>Chance</th></tr></thead><tbody>${list.map(x => { const nn = winsNeeded(st, tg, x), r = riskFor(x); return `<tr${Math.abs(x - o) < .001 ? ' style="font-weight:700"' : ""}><td>${odds2(x)}</td><td>${r ? r.sym + " " + r.name : "🟢 Safe"}</td><td>${nn}</td><td>${chance(Math.pow(1 / x / (1 + m / 100), nn))}</td></tr>`; }).join("")}</tbody></table>`;
+  };
+  ["#plOdds", "#plMargin", "#plStart", "#plTarget"].forEach(id => $(id).addEventListener("input", calc));
+  $("#plFromNow").onclick = () => { $("#plStart").value = Math.round(s.balance * 100) / 100; calc(); };
+  $("#plReset").onclick = () => { $("#plStart").value = t.start; $("#plTarget").value = t.target; calc(); };
+  calc();
+}
+
+/* ---------- Awards ---------- */
+function renderAwards() {
+  const fresh = evalAchievements(); if (fresh.length) save();
+  const best = state.bestStreak || 0;
+  const got = Object.keys(state.achievements).length;
+  $("#view").innerHTML = `
+    <div class="head" style="padding-top:18px"><div><div class="eyebrow">Best streak ever: ${tierFor(best).sym} ${plural(best, "win")}</div><h1>Awards</h1></div></div>
+    <div class="section-h"><h2>Themes</h2><span>Tap a locked theme to preview it</span></div>
+    <div class="skins">${SKINS.map(k => { const open = best >= k.need; return `<button class="skin ${state.skin === k.id ? "on" : ""} ${open ? "" : "locked"}" data-skin="${k.id}" data-open-skin="${open ? 1 : ""}" style="--sw:${k.sw}"><div class="sw">${open ? "" : `<b>🔒</b>`}</div><div class="nm">${k.sym ? k.sym + " " : ""}${k.name}${open ? "" : ` · ${k.need}`}</div></button>`; }).join("")}</div>
+    <div class="section-h"><h2>Badges</h2><span>${got} of ${ACH.length}</span></div>
+    <div class="ach-grid">${ACH.map(a => { const at = state.achievements[a.id]; return `<div class="glass ach ${at ? "got" : "locked"}"><div class="e">${a.e}</div><div class="n">${a.n}</div><div class="d">${a.d}</div>${at ? `<div class="d" style="color:var(--gold)">Unlocked ${day(at)}</div>` : ""}</div>`; }).join("")}</div>
+    <div class="section-h"><h2>Tier ladder</h2><span>by wins in a row</span></div>
+    <div class="glass card"><div class="ladder">${TIERS.map(tr => `<div class="${best >= tr.min ? "" : "no"}">${tierBadge(tr)}<span>${tr.min} wins${best >= tr.min ? " ✓" : ""}</span></div>`).join("")}</div></div>`;
+  document.querySelectorAll("[data-skin]").forEach(el => el.onclick = () => {
+    if (el.dataset.openSkin) { previewSkin = null; state.skin = el.dataset.skin; save(); render(); }
+    else { previewSkin = el.dataset.skin; go("home"); }
+  });
+}
+
+/* ---------- Global clicks ---------- */
+document.addEventListener("click", e => {
+  if (!state) return;
+  if (e.target.closest("#meBtn")) return go(state.page === "profile" ? "home" : "profile");
+  if (e.target.closest("[data-stoppreview]")) { previewSkin = null; return render(); }
+  const nav = e.target.closest("[data-nav]"); if (nav) return go(nav.dataset.nav);
+  const tab = e.target.closest("[data-tab]"); if (tab) { state.activeId = tab.dataset.tab; statsRun = null; save(); render(); return; }
+  if (e.target.closest("[data-add]")) {
+    const t = newTracker(state.trackers.length + 1);
+    state.trackers.push(t); state.activeId = t.id; state.page = "home";
+    const fresh = evalAchievements(); save(); render(); openOptions(t, true); announce(fresh);
+  }
+});
+
+/* =========================================================
+   Sheets
+   ========================================================= */
+let scrim = null;
+function openSheet(html, cls = "") {
+  closeSheet();
+  scrim = document.createElement("div"); scrim.className = "scrim";
+  scrim.innerHTML = `<div class="sheet ${cls}" role="dialog" aria-modal="true"><div class="grab"></div>${html}</div>`;
+  scrim.addEventListener("click", e => { if (e.target === scrim) closeSheet(); });
+  document.body.appendChild(scrim);
+  return scrim.querySelector(".sheet");
+}
+function closeSheet() { if (scrim) { scrim.dispatchEvent(new Event("closing")); scrim.remove(); scrim = null; } }
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeSheet(); });
+function toast(msg, cls = "") {
+  const el = document.createElement("div"); el.className = "toast " + cls; el.textContent = msg;
+  document.body.appendChild(el); setTimeout(() => el.remove(), 2600);
+}
+
+/* ---------- Tracker options ---------- */
+function openOptions(t, isNew) {
+  const s = compute(t);
+  let mode = t.oddsMode, accent = t.accent;
+  const canMove = !s.pending;
+  const profit = Math.max(0, s.balance - t.start);
+  const sh = openSheet(`
+    <h3>${isNew ? "New tracker" : "Tracker options"}</h3>
+    <div class="sub">Changes to the numbers recalculate the whole run.</div>
+    <div class="field"><label for="oName">Name</label><input id="oName" maxlength="30" value="${esc(t.name)}"></div>
+    <div class="field"><label>Accent colour</label><div class="swatches">${ACCENTS.map(c => `<button data-c="${c}" style="--c:${c}" class="${c === accent ? "on" : ""}" aria-label="Colour ${c}"></button>`).join("")}</div></div>
+    <div class="row2">
+      <div class="field"><label for="oStart">Starting balance</label><input id="oStart" inputmode="decimal" value="${t.start}"></div>
+      <div class="field"><label for="oTarget">Target ${t.targetEdits.length ? `<span class="edited">edited</span>` : ""}</label><input id="oTarget" inputmode="decimal" value="${t.target}"></div>
+    </div>
+    ${t.targetEdits.length ? `<div class="note">${t.targetEdits.map(x => `${money(x.from)} → ${money(x.to)} on ${day(x.at)}`).join(" · ")}</div>` : ""}
+    <div class="field"><label>Odds for the forecast</label><div class="seg"><button data-m="auto">Typical of last 10</button><button data-m="fixed">Fixed</button></div></div>
+    <div class="field"><label for="oOdds" id="oOddsLbl"></label><input id="oOdds" inputmode="decimal" value="${t.fixedOdds}"><div class="hint" id="oOddsHint"></div></div>
+    <div class="err" id="oErr"></div>
+    <button class="btn" id="oSave">Save</button>
+    ${isNew ? "" : `
+    <h4>Bank profit</h4>
+    <div class="sub" style="margin-bottom:10px">Moves money out of the run into Banked, where a loss can't touch it. Your next stake gets smaller.</div>
+    <div class="field" style="margin-bottom:8px"><label for="bkAmt">Amount (balance ${money(s.balance)})</label><input id="bkAmt" inputmode="decimal" placeholder="0.00" ${canMove ? "" : "disabled"}></div>
+    <div class="chips" style="margin-bottom:10px">${profit > 0 ? `<button class="chip" data-amt="${profit.toFixed(2)}">Profit ${moneyShort(profit)}</button>` : ""}<button class="chip" data-amt="${(s.balance / 2).toFixed(2)}">Half</button><button class="chip" data-amt="${(s.balance * .25).toFixed(2)}">Quarter</button></div>
+    <div class="err" id="bkErr"></div>
+    <button class="btn gold" id="bkGo" ${canMove ? "" : "disabled"}>Bank it</button>
+    ${canMove ? "" : `<div class="note" style="margin:8px 0 0">Settle the pending bet first.</div>`}
+    <h4>Run</h4>
+    <div class="btns">
+      <button class="btn sec" id="pauseBtn">${t.paused ? "▶️ Resume run" : "⏸ Pause run"}</button>
+      <button class="btn warn" id="endBtn" ${canMove ? "" : "disabled"}>🏁 End run and cash out ${money(s.balance)}</button>
+    </div>
+    <div class="note" style="margin:8px 0 0">Ending a run banks the whole balance and starts run ${s.current.n + 1} from ${money(t.start)}.</div>`}`);
+  const paint = () => {
+    sh.querySelectorAll("[data-m]").forEach(b => b.classList.toggle("on", b.dataset.m === mode));
+    sh.querySelectorAll("[data-c]").forEach(b => b.classList.toggle("on", b.dataset.c === accent));
+    sh.querySelector("#oOddsLbl").textContent = mode === "auto" ? "Odds to use before your first bet" : "Fixed odds";
+    sh.querySelector("#oOddsHint").textContent = mode === "auto"
+      ? (t.bets.length ? `Auto is on: the middle odds of your last ${Math.min(RECENT, t.bets.length)} bets is ${odds2(typicalOdds(t.bets))}. One-off big bets barely move it.` : "Used until you log your first bet. After that the middle odds of your last 10 bets take over.")
+      : "Wins to go always uses this number.";
+  };
+  sh.querySelectorAll("[data-m]").forEach(b => b.onclick = () => { mode = b.dataset.m; paint(); });
+  sh.querySelectorAll("[data-c]").forEach(b => b.onclick = () => { accent = b.dataset.c; paint(); });
+  paint();
+  sh.querySelector("#oSave").onclick = () => {
+    const name = sh.querySelector("#oName").value.trim() || t.name;
+    const start = num(sh.querySelector("#oStart").value), target = num(sh.querySelector("#oTarget").value), fo = num(sh.querySelector("#oOdds").value);
+    const err = sh.querySelector("#oErr");
+    if (!(start > 0)) return err.textContent = "Starting balance must be more than $0.";
+    if (!(target > start)) return err.textContent = "Target must be higher than the starting balance.";
+    if (!(fo > 1)) return err.textContent = "Average odds must be above 1.00 (decimal odds).";
+    if (target !== t.target && !isNew) {
+      const at = Date.now();
+      t.targetEdits.push({ at, from: t.target, to: target });
+      t.actions.push({ id: uid(), type: "target", at, from: t.target, to: target });
+    }
+    Object.assign(t, { name, start, target, fixedOdds: fo, oddsMode: mode, accent });
+    save(); closeSheet(); render();
+  };
+  if (isNew) return;
+  sh.querySelectorAll("[data-amt]").forEach(b => b.onclick = () => { sh.querySelector("#bkAmt").value = b.dataset.amt; });
+  sh.querySelector("#bkGo").onclick = () => {
+    const amt = Math.round(num(sh.querySelector("#bkAmt").value) * 100) / 100, err = sh.querySelector("#bkErr");
+    if (!(amt > 0)) return err.textContent = "Enter an amount to bank.";
+    if (amt >= s.balance) return err.textContent = `Leave something to bet with. To take it all, use End run instead.`;
+    t.actions.push({ id: uid(), type: "bank", at: Date.now(), amount: amt });
+    const fresh = evalAchievements(); save(); closeSheet(); render({ type: "edit", from: s.frac });
+    fx(`<div class="stamp" style="filter:drop-shadow(0 0 30px var(--gold))">🏦<b style="color:var(--gold);text-shadow:0 0 18px var(--gold)">${moneyShort(amt)}</b></div>`, 1200);
+    toast(`Banked ${money(amt)}.`); announce(fresh);
+  };
+  sh.querySelector("#pauseBtn").onclick = () => {
+    t.paused = !t.paused; t.actions.push({ id: uid(), type: t.paused ? "pause" : "resume", at: Date.now() });
+    save(); closeSheet(); render(); toast(t.paused ? "Run paused. Your streak is safe." : "Run resumed.");
+  };
+  let armed = false;
+  sh.querySelector("#endBtn").onclick = e => {
+    if (!armed) { armed = true; e.currentTarget.textContent = "Tap again to end this run"; return; }
+    t.actions.push({ id: uid(), type: "end", at: Date.now() });
+    t.paused = false;
+    const fresh = evalAchievements(); save(); closeSheet(); render({ type: "end", from: s.frac, amt: s.balance });
+    announce(fresh);
+  };
+}
+
+/* ---------- Sport picker ---------- */
+function sportPicker(wrap, initial, disabled) {
+  const input = wrap.querySelector("input"), mark = wrap.querySelector(".picked");
+  let value = initial || "", list = null, hi = 0;
+  input.value = value; input.disabled = !!disabled;
+  const showMark = () => mark.textContent = value && input.value === value ? "✓" : "";
+  function matches(q) {
+    q = q.trim().toLowerCase();
+    const recent = state.recentSports.filter(n => SPORT_NAMES.has(n));
+    const score = name => {
+      if (!q) return 0;
+      const n = name.toLowerCase(), a = (SPORTS.find(s => s.name === name) || { alias: "" }).alias;
+      if (n.startsWith(q)) return 3;
+      if (n.split(" ").some(w => w.startsWith(q))) return 2;
+      if (a.split(" ").some(w => w.startsWith(q)) || n.includes(q)) return 1;
+      return -1;
+    };
+    const res = recent.filter(n => score(n) >= 0).map(n => ({ n, recent: true }));
+    const rest = SPORTS.map(s => s.name).filter(n => !recent.includes(n)).map(n => ({ n, s: score(n) })).filter(x => x.s >= 0);
+    if (q) rest.sort((x, y) => y.s - x.s);
+    res.push(...rest.map(x => ({ n: x.n })));
+    if (!res.some(x => x.n === "Other")) res.push({ n: "Other" });
+    return res;
+  }
+  function open() {
+    close();
+    const items = matches(input.value); hi = 0;
+    list = document.createElement("div"); list.className = "sugg"; list.setAttribute("role", "listbox");
+    list.innerHTML = items.map((x, i) => `<button type="button" data-s="${esc(x.n)}" class="${i === 0 ? "hi" : ""}">${esc(x.n)}${x.recent ? "<small>recent</small>" : x.n === "Other" ? "<small>not listed</small>" : ""}</button>`).join("");
+    list.addEventListener("pointerdown", e => e.preventDefault());
+    list.addEventListener("click", e => { const b = e.target.closest("[data-s]"); if (b) pick(b.dataset.s); });
+    wrap.appendChild(list);
+  }
+  function close() { if (list) { list.remove(); list = null; } }
+  function pick(n) { value = n; input.value = n; close(); showMark(); }
+  input.addEventListener("focus", open);
+  input.addEventListener("input", () => { if (input.value !== value) value = ""; showMark(); open(); });
+  input.addEventListener("blur", () => setTimeout(() => {
+    close();
+    if (!value && input.value.trim()) { const m = matches(input.value); if (m.length && m[0].n !== "Other") pick(m[0].n); }
+  }, 120));
+  input.addEventListener("keydown", e => {
+    if (!list) return;
+    const btns = [...list.querySelectorAll("button")];
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault(); btns[hi]?.classList.remove("hi");
+      hi = (hi + (e.key === "ArrowDown" ? 1 : -1) + btns.length) % btns.length;
+      btns[hi].classList.add("hi"); btns[hi].scrollIntoView({ block: "nearest" });
+    } else if (e.key === "Enter") { e.preventDefault(); if (btns[hi]) pick(btns[hi].dataset.s); }
+  });
+  showMark();
+  return { get value() { return value && input.value === value ? value : ""; }, set(n) { if (SPORT_NAMES.has(n)) pick(n); } };
+}
+function pushRecent(n) { state.recentSports = [n, ...state.recentSports.filter(x => x !== n)].slice(0, 5); }
+function cleanLink(v) { v = v.trim(); if (!v) return ""; return /^https?:\/\//i.test(v) ? v : "https://" + v; }
+
+/* ---------- New bet ---------- */
+function openNewBet(t) {
+  const s = compute(t);
+  const sh = openSheet(`
+    <h3>Log a bet</h3>
+    <div class="sub">Stakes the whole balance of ${money(s.balance)}.</div>
+    <div class="scan" id="scanRow" hidden><button class="btn sec" id="scanBtn" style="width:auto">📷 Fill from screenshot</button><span class="s" id="scanMsg">Upload your bet slip and Claude fills in the details.</span><input type="file" id="scanFile" accept="image/*" hidden></div>
+    <div class="field"><label for="nOdds">Decimal odds</label><input id="nOdds" inputmode="decimal" placeholder="e.g. 1.85" autocomplete="off"></div>
+    <div class="field" id="nSportWrap"><label for="nSport">Sport</label><input id="nSport" placeholder="Start typing, e.g. crick" autocomplete="off"><span class="picked"></span></div>
+    <div class="field"><label for="nText">Bet</label><input id="nText" maxlength="60" placeholder="e.g. Storm to win" autocomplete="off"></div>
+    <div class="field"><label for="nLink">Link (optional)</label><input id="nLink" inputmode="url" placeholder="https://" autocomplete="off"></div>
+    <div class="preview"><span>Returns <b id="nRet">–</b></span><span id="nRisk" class="s"></span></div>
+    <div class="err" id="nErr"></div>
+    <button class="btn" id="nSave">Log bet</button>`);
+  const picker = sportPicker(sh.querySelector("#nSportWrap"), "");
+  const oddsIn = sh.querySelector("#nOdds");
+  oddsIn.addEventListener("input", () => {
+    const o = num(oddsIn.value), rk = o > 1 ? riskFor(o) : null;
+    sh.querySelector("#nRet").textContent = o > 1 ? money(s.balance * o) : "–";
+    sh.querySelector("#nRisk").innerHTML = o > 1 ? (rk ? `<span class="riskchip" style="--rc:${rk.c}">${rk.sym} ${rk.name}</span>` : "🟢 Under 1.10") : "";
+  });
+  setTimeout(() => oddsIn.focus(), 250);
+  setupScan(sh, picker, s.balance);
+  sh.querySelector("#nSave").onclick = () => {
+    const o = num(oddsIn.value), sport = picker.value, text = sh.querySelector("#nText").value.trim(), err = sh.querySelector("#nErr");
+    if (!(o > 1)) return err.textContent = "Enter decimal odds above 1.00, like 1.85.";
+    if (!sport) return err.textContent = "Pick a sport from the list (use Other if it isn't there).";
+    if (!text) return err.textContent = "Add a few words about the bet, like “Storm to win”.";
+    const before = compute(t);
+    const b = { id: uid(), odds: Math.round(o * 1000) / 1000, sport, text, link: cleanLink(sh.querySelector("#nLink").value), result: "pending", createdAt: Date.now(), settledAt: null, edits: [] };
+    t.bets.push(b);
+    pushRecent(sport);
+    const fresh = evalAchievements(); save(); closeSheet();
+    render({ type: "pending", from: before.frac, risk: riskFor(b.odds) });
+    announce(fresh);
+  };
+}
+
+/* ---------- Bet slip screenshot reader ---------- */
+async function setupScan(sh, picker, balance) {
+  const sample = await samplePromise;
+  if (!sample || !sh.isConnected) return;
+  const lim = await sample.limits().catch(() => null);
+  if (!lim || !lim.images) return;
+  const row = sh.querySelector("#scanRow"), btn = sh.querySelector("#scanBtn"), file = sh.querySelector("#scanFile"), msg = sh.querySelector("#scanMsg");
+  file.accept = lim.images.mediaTypes.join(",");
+  row.hidden = false;
+  btn.onclick = () => file.click();
+  file.onchange = async () => {
+    const f = file.files && file.files[0]; file.value = "";
+    if (!f) return;
+    row.classList.add("busy"); btn.disabled = true; msg.textContent = "Reading your bet slip…";
+    const prompt = `The image is a screenshot of a bet slip from a bookmaker app. Read the bet and reply with only a JSON object:
+{"odds": number, "sport": string, "text": string, "link": string|null, "stake": number|null, "found": boolean}
+Rules:
+- odds: the DECIMAL odds for the whole bet. Convert fractional (5/4 -> 2.25) or American (+150 -> 2.5, -200 -> 1.5) odds. For a multi or parlay use the combined total odds.
+- sport: exactly one of: ${SPORTS.map(x => x.name).join(", ")}, Other. Pick the closest match (NRL -> Rugby League, EPL -> Soccer, UFC -> MMA, F1 -> Formula 1). Use Other if none fits.
+- text: a short description of the selection in under 40 characters, like "Storm to win" or "Arsenal & Chelsea multi".
+- link: a URL only if one is printed in the image, else null.
+- stake: the stake amount shown, as a number, else null.
+- found: false if the image is not a bet slip or the odds can't be read.`;
+    try {
+      const r = await sample.json(prompt, { images: f, modelTier: "default" });
+      if (!sh.isConnected) return;
+      if (!r || r.found === false || !(Number(r.odds) > 1)) { msg.textContent = "Couldn't find a bet on that image. Try a clearer screenshot of the slip."; return; }
+      sh.querySelector("#nOdds").value = Math.round(Number(r.odds) * 1000) / 1000;
+      sh.querySelector("#nOdds").dispatchEvent(new Event("input"));
+      if (r.sport) picker.set(SPORT_NAMES.has(String(r.sport)) ? String(r.sport) : "Other");
+      if (r.text) sh.querySelector("#nText").value = String(r.text).slice(0, 60);
+      if (r.link && /^https?:\/\//i.test(String(r.link))) sh.querySelector("#nLink").value = String(r.link);
+      const st = Number(r.stake);
+      msg.innerHTML = "✅ Filled in. Check the details, then tap <b>Log bet</b>." + (st > 0 && Math.abs(st - balance) / balance > 0.01 ? ` The slip shows a ${esc(money(st))} stake, but the tracker stakes ${esc(money(balance))}.` : "");
+    } catch (e) {
+      if (!sh.isConnected) return;
+      const c = e && e.code;
+      if (c === "not_granted" || c === "sampling_disabled" || c === "images_unavailable" || c === "not_declared" || c === "capability_disabled" || c === "capability_removed") { row.hidden = true; return; }
+      msg.textContent = c === "rate_limited" ? "Too many reads right now. Try again in a bit, or type it in."
+        : c === "image_rejected" ? "That file couldn't be read. Try a PNG or JPG screenshot."
+        : c === "invalid_json" ? "Couldn't make sense of that slip. Try again or type it in."
+        : c === "cancelled" ? "Stopped." : "Something went wrong reading the slip. Try again or type it in.";
+    } finally { row.classList.remove("busy"); btn.disabled = false; }
+  };
+}
+
+/* ---------- Bet detail ---------- */
+function openBet(t, id) {
+  const b = t.bets.find(x => x.id === id); if (!b) return;
+  const s = compute(t), r = s.rows[id], now = Date.now();
+  const isLast = t.bets[t.bets.length - 1].id === id;
+  const detailsOpen = now - b.createdAt < DAY;
+  const resultLocked = b.result !== "pending" && b.settledAt && now - b.settledAt > DAY;
+  const laterActs = t.actions.some(a => a.at > b.createdAt && (a.type === "bank" || a.type === "end"));
+  const canResult = res => res === b.result || (!resultLocked && (res !== "pending" || (isLast && !laterActs)));
+  const label = { win: "Win", loss: "Loss", pending: "Pending" }, icon = { win: "✅", loss: "❌", pending: "⏳" };
+  const rk = riskFor(b.odds);
+  const sh = openSheet(`
+    <h3>${esc(b.text)}</h3>
+    <div class="sub">${esc(b.sport)} · Run ${r.run}, bet ${r.betInRun} · logged ${when(b.createdAt)}${b.edits.length ? ` · <span class="edited">edited</span>` : ""}${rk ? ` · <span class="riskchip" style="--rc:${rk.c}">${rk.sym} ${rk.name}</span>` : ""}</div>
+    <div class="results">${["win", "loss", "pending"].map(res => `<button class="${res} ${b.result === res ? "on" : ""}" data-res="${res}" ${canResult(res) ? "" : "disabled"}><span>${icon[res]}</span>${label[res]}</button>`).join("")}</div>
+    ${resultLocked ? `<div class="note">🔒 Result locked 24 hours after it was set.</div>` : b.result !== "pending" ? `<div class="note">You can correct the result until ${when(b.settledAt + DAY)}.</div>` : ""}
+    <div class="kv">
+      <div><div class="k">Stake</div><div class="v">${moneyShort(r.stake)}</div></div>
+      <div><div class="k">Odds</div><div class="v">${odds2(b.odds)}</div></div>
+      <div><div class="k">${b.result === "win" ? "Paid" : b.result === "loss" ? "Lost" : "Returns"}</div><div class="v">${b.result === "loss" ? moneyShort(r.stake) : moneyShort(r.potential)}</div></div>
+    </div>
+    ${b.link ? `<p style="margin:-4px 0 16px;font-size:14px">🔗 <a class="link" href="${esc(b.link)}" target="_blank" rel="noopener">${esc(b.link)}</a></p>` : ""}
+    <div class="field"><label for="eOdds">Odds · editable any time</label><input id="eOdds" inputmode="decimal" value="${b.odds}"></div>
+    <div class="field"><label for="eText">Bet</label><input id="eText" maxlength="60" value="${esc(b.text)}" ${detailsOpen ? "" : "disabled"}></div>
+    <div class="field" id="eSportWrap"><label for="eSport">Sport</label><input id="eSport" autocomplete="off"><span class="picked"></span></div>
+    <div class="field"><label for="eLink">Link</label><input id="eLink" inputmode="url" value="${esc(b.link)}" placeholder="https://" ${detailsOpen ? "" : "disabled"}></div>
+    <div class="note">${detailsOpen ? `Bet, sport and link lock in ${dur(b.createdAt + DAY - now)}.` : "🔒 Bet, sport and link are locked. Odds can still be fixed."}</div>
+    <div class="err" id="eErr"></div>
+    <button class="btn sec" id="eSave">Save changes</button>
+    <h4>Edit history</h4>
+    <div class="history">${b.edits.length ? `<ul>${b.edits.slice().reverse().map(e => `<li><b>${when(e.at)}</b>: ${e.changes.map(c => `${esc(c.field)} ${esc(c.from)} → ${esc(c.to)}`).join("; ")}</li>`).join("")}</ul>` : `<div class="hint" style="font-size:13px">No edits. Bets can't be deleted, and every change is listed here.</div>`}</div>`);
+  const picker = sportPicker(sh.querySelector("#eSportWrap"), b.sport, !detailsOpen);
+  sh.querySelectorAll("[data-res]").forEach(btn => btn.onclick = () => {
+    const res = btn.dataset.res;
+    if (res === b.result) return;
+    const before = compute(t), prev = b.result;
+    if (prev !== "pending") b.edits.push({ at: Date.now(), changes: [{ field: "result", from: label[prev], to: label[res] }] });
+    b.result = res;
+    b.settledAt = res === "pending" ? null : (prev === "pending" ? Date.now() : b.settledAt);
+    const fresh = evalAchievements(); save(); closeSheet();
+    const after = compute(t);
+    render({ type: res, from: before.frac, before, after, risk: riskFor(b.odds) });
+    announce(fresh);
+  });
+  sh.querySelector("#eSave").onclick = () => {
+    const err = sh.querySelector("#eErr"), o = num(sh.querySelector("#eOdds").value);
+    if (!(o > 1)) return err.textContent = "Odds must be above 1.00.";
+    const changes = [], no = Math.round(o * 1000) / 1000;
+    if (no !== b.odds) changes.push({ field: "odds", from: odds2(b.odds), to: odds2(no) });
+    let upd = {};
+    if (detailsOpen) {
+      const text = sh.querySelector("#eText").value.trim(), sport = picker.value, link = cleanLink(sh.querySelector("#eLink").value);
+      if (!text) return err.textContent = "The bet needs a description.";
+      if (!sport) return err.textContent = "Pick a sport from the list.";
+      if (text !== b.text) changes.push({ field: "bet", from: `“${b.text}”`, to: `“${text}”` });
+      if (sport !== b.sport) { changes.push({ field: "sport", from: b.sport, to: sport }); pushRecent(sport); }
+      if (link !== (b.link || "")) changes.push({ field: "link", from: b.link || "none", to: link || "none" });
+      upd = { text, sport, link };
+    }
+    if (!changes.length) return closeSheet();
+    const before = compute(t);
+    Object.assign(b, upd, { odds: no }); b.edits.push({ at: Date.now(), changes });
+    const fresh = evalAchievements(); save(); closeSheet();
+    render({ type: "edit", from: before.frac });
+    toast(changes.some(c => c.field === "odds") ? "Odds updated. The run was recalculated." : "Changes saved.");
+    announce(fresh);
+  };
+}
+
+/* =========================================================
+   Animations
+   ========================================================= */
+function fx(html, ms, cls = "") {
+  const el = document.createElement("div"); el.className = "fx " + cls; el.innerHTML = html;
+  document.body.appendChild(el); setTimeout(() => el.remove(), ms); return el;
+}
+function runAnim(a, s, ring) {
+  const goRing = (frac, opt) => requestAnimationFrame(() => requestAnimationFrame(() => setRing(ring, frac, opt)));
+  if (a.type === "win") {
+    fx(`<div class="stamp">✅<b>WIN</b></div>`, 1200);
+    const newTier = a.after.tier !== a.before.tier && a.after.streak > a.before.streak;
+    const hit = a.after.reached && !a.before.reached;
+    goRing(s.frac, { duration: 1.1, delay: .35 });
+    setTimeout(() => ring.classList.add(newTier || hit ? "surge-big" : "surge"), 380);
+    if (newTier) setTimeout(() => tierBurst(a.after.tier), 900);
+    if (hit) setTimeout(() => confetti(["#f5c518", "#ffe27a", "#e8a90c", "#fff3b0", "#c99700"], 240), newTier ? 2800 : 900);
+  } else if (a.type === "loss") {
+    crack();
+    goRing(s.frac, { duration: 1.5, delay: 1 });
+  } else if (a.type === "pending") {
+    const rk = a.risk;
+    fx(`<div class="glass-fx" style="--rc:${rk ? rk.c : "var(--pend)"}"><div class="hg">⏳</div>${rk ? `<div class="rk">${rk.sym} ${rk.name}</div>` : ""}</div>`, 1700);
+    goRing(s.frac);
+  } else if (a.type === "end") {
+    fx(`<div class="stamp" style="filter:drop-shadow(0 0 30px var(--gold))">🏁<b style="color:var(--gold);text-shadow:0 0 18px var(--gold)">${moneyShort(a.amt)}</b></div>`, 1300);
+    goRing(s.frac, { duration: 1.4, delay: .6 });
+  } else goRing(s.frac);
+}
+function crack(target) {
+  const w = innerWidth, h = innerHeight, cx = w / 2, cy = h * .42, paths = [];
+  for (let i = 0; i < 9; i++) {
+    let ang = (i / 9) * Math.PI * 2 + Math.random() * .5, x = cx, y = cy, d = `M${x},${y}`;
+    const reach = Math.hypot(w, h) * .6;
+    for (let step = 0; step < 7; step++) {
+      ang += (Math.random() - .5) * .7;
+      const len = reach / 7 * (.7 + Math.random() * .6);
+      x += Math.cos(ang) * len; y += Math.sin(ang) * len; d += ` L${x.toFixed(1)},${y.toFixed(1)}`;
+      if (step === 2 && Math.random() > .4) {
+        let bx = x, by = y, ba = ang + (Math.random() > .5 ? .9 : -.9), bd = `M${bx},${by}`;
+        for (let k = 0; k < 3; k++) { ba += (Math.random() - .5) * .6; bx += Math.cos(ba) * len * .6; by += Math.sin(ba) * len * .6; bd += ` L${bx.toFixed(1)},${by.toFixed(1)}`; }
+        paths.push(bd);
+      }
+    }
+    paths.push(d);
+  }
+  const svg = `<svg viewBox="0 0 ${w} ${h}">${paths.map((d, i) => `<path d="${d}" pathLength="1" stroke-dasharray="1" stroke-dashoffset="1" style="animation-delay:${(i * .02).toFixed(2)}s, 1.2s"/>`).join("")}</svg>`;
+  fx(`<div class="flash-red"></div>${svg}<div class="x-mark">❌<b>LOSS</b></div>`, 1800, "crack");
+  if (!reduced) {
+    const el = target || $("#app"); el.classList.remove("shake"); void el.offsetWidth; el.classList.add("shake");
+    setTimeout(() => el.classList.remove("shake"), 600);
+    try { navigator.vibrate && navigator.vibrate([60, 40, 120]); } catch (e) {}
+  }
+}
+function tierBurst(tier) {
+  const lvl = tier.idx, durS = Math.min(4, 2 + lvl * .14);
+  const cosmic = tier.badge === "cosmic";
+  if (lvl >= 4) fx(`<div class="screenflash" style="--tc:${tier.c2}"></div>`, 900);
+  fx(`<div class="tierburst ${cosmic ? "cosmic" : ""}" style="--tc:${tier.c2};--tdur:${durS}s"><div class="rays"></div><div class="sym">${tier.sym}</div><div class="lbl"><small>New tier · ${tier.min} wins</small>${tier.name}</div></div>`, durS * 1000 + 100);
+  if (lvl >= 4) confetti(cosmic ? ["#ffffff", "#ff5fd2", "#3ad6ff", tier.c1, tier.c2] : [tier.c1, tier.c2, "#ffffff"], Math.min(320, 60 + lvl * 18));
+  if (!reduced && lvl >= 7) { const app = $("#app"); app.classList.remove("shake"); void app.offsetWidth; app.classList.add("shake"); setTimeout(() => app.classList.remove("shake"), 600); }
+}
+function confetti(cols, count) {
+  const cv = document.createElement("canvas"); cv.className = "confetti"; document.body.appendChild(cv);
+  const d = devicePixelRatio || 1; cv.width = innerWidth * d; cv.height = innerHeight * d;
+  const ctx = cv.getContext("2d"); ctx.scale(d, d);
+  const ps = Array.from({ length: reduced ? 30 : count }, () => ({
+    x: innerWidth / 2 + (Math.random() - .5) * 60, y: innerHeight * .42, vx: (Math.random() - .5) * 16, vy: -Math.random() * 16 - 4,
+    r: Math.random() * 6 + 3, a: Math.random() * 6, va: (Math.random() - .5) * .4, c: cols[(Math.random() * cols.length) | 0] }));
+  const t0 = performance.now();
+  (function frame(t) {
+    const el = t - t0; ctx.clearRect(0, 0, innerWidth, innerHeight);
+    for (const p of ps) {
+      p.vy += .35; p.vx *= .99; p.x += p.vx; p.y += p.vy; p.a += p.va;
+      ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.a); ctx.globalAlpha = Math.max(0, 1 - el / 3800);
+      ctx.fillStyle = p.c; ctx.fillRect(-p.r, -p.r / 2.5, p.r * 2, p.r / 1.25); ctx.restore();
+    }
+    if (el < 3800) requestAnimationFrame(frame); else cv.remove();
+  })(t0);
+}
+
+/* ---------- Run replay ---------- */
+function openReplay(t, runIdx) {
+  const s = compute(t), run = s.runs[runIdx];
+  if (!run) return;
+  const sh = openSheet(`
+    <h3>Run ${run.n} replay</h3>
+    <div class="sub">${day(run.startAt)} · ${plural(run.bets.length, "bet")} · ${run.end.reason === "loss" ? "ended in a loss" : "cashed out"}</div>
+    <div class="ring-wrap" id="rpRing" style="margin-top:4px">${ringSVG({ tier: TIERS[0], frac: 0, total: winsNeeded(t.start, t.target, s.odds), reached: false })}
+      <div class="ring-center"><div class="bal" id="rpBal" style="font-size:34px">${money(t.start)}</div><div class="of">of ${moneyShort(t.target)}</div><div class="streak" id="rpStreak" style="font-size:19px">🌱 0 wins</div></div></div>
+    <div class="now" id="rpNow">Starting with ${money(t.start)}…</div>
+    <div class="row2" style="margin-top:12px"><button class="btn sec" id="rpAgain">↺ Restart</button><button class="btn sec" id="rpSpeed">Speed 1×</button></div>`, "replay");
+  let timer = null, speed = 1, i = 0;
+  const ring = sh.querySelector("#rpRing");
+  scrim.addEventListener("closing", () => clearTimeout(timer));
+  const show = step => {
+    const tr = tierFor(step.streak);
+    sh.querySelector("#rpBal").textContent = money(step.bal);
+    sh.querySelector("#rpStreak").textContent = `${tr.sym} ${plural(step.streak, "win")}`;
+    const frac = step.type === "loss" || step.type === "end" ? fracFor(step.streak, step.bal || t.start, t.target, s.odds) : fracFor(step.streak, step.bal, t.target, s.odds);
+    ring.querySelectorAll("stop")[0].setAttribute("stop-color", tr.c1); ring.querySelectorAll("stop")[1].setAttribute("stop-color", tr.c2);
+    setRing(ring, step.type === "loss" ? 0 : frac, { duration: step.type === "loss" ? 1 : .6 / speed });
+    let mk = "";
+    if (step.type === "win") { mk = "✅"; sh.querySelector("#rpNow").innerHTML = `<b>${esc(step.b.text)}</b> @ ${odds2(step.b.odds)}<br><span style="color:var(--win)">Won · ${money(step.bal)}</span>`; }
+    if (step.type === "loss") { mk = "❌"; sh.querySelector("#rpNow").innerHTML = `<b>${esc(step.b.text)}</b> @ ${odds2(step.b.odds)}<br><span style="color:var(--loss)">Lost · run over after ${plural(run.end.streak, "win")}</span>`; ring.classList.remove("shake"); void ring.offsetWidth; ring.classList.add("shake"); }
+    if (step.type === "bank") { mk = "🏦"; sh.querySelector("#rpNow").innerHTML = `<span style="color:var(--gold)">Banked ${money(step.amt)}</span>`; }
+    if (step.type === "end") { mk = "🏁"; sh.querySelector("#rpNow").innerHTML = `<span style="color:var(--gold)">Cashed out ${money(step.amt)} after ${plural(step.streak, "win")}</span>`; }
+    if (mk) { const m = document.createElement("div"); m.className = "replay-stamp"; m.textContent = mk; ring.appendChild(m); setTimeout(() => m.remove(), 900); }
+  };
+  const tick = () => {
+    if (i >= run.steps.length) return;
+    show(run.steps[i++]);
+    timer = setTimeout(tick, 1100 / speed);
+  };
+  const restart = () => {
+    clearTimeout(timer); i = 0;
+    sh.querySelector("#rpBal").textContent = money(t.start); sh.querySelector("#rpStreak").textContent = "🌱 0 wins"; sh.querySelector("#rpNow").textContent = `Starting with ${money(t.start)}…`;
+    setRing(ring, 0, { duration: .3 }); timer = setTimeout(tick, 700);
+  };
+  sh.querySelector("#rpAgain").onclick = restart;
+  sh.querySelector("#rpSpeed").onclick = e => { speed = speed === 1 ? 2 : speed === 2 ? 4 : 1; e.currentTarget.textContent = `Speed ${speed}×`; };
+  restart();
+}
+
+/* =========================================================
+   Boot
+   ========================================================= */
+/* =========================================================
+   Account: sign-in screens, profile, import, sync status
+   ========================================================= */
+const IMPORTED_KEY = () => "streak-charger.imported." + (Cloud.user ? Cloud.user.id : "local");
+const NAME_RE = /^[A-Za-z0-9_.]{3,20}$/;
+const NAME_HINT = "3 to 20 letters, numbers, dots or underscores.";
+let me = null, starting = false, syncState = "saved";
+
+// The profile badge shows the highest live streak across all trackers.
+function liveBest() {
+  let best = { streak: 0, t: state.trackers[0] };
+  for (const t of state.trackers) { const s = compute(t); if (s.streak > best.streak) best = { streak: s.streak, t }; }
+  const tier = tierFor(best.streak);
+  return { ...best, tier, key: best.streak + ":" + tier.idx };
+}
+function profileStreak() { const b = liveBest(); return { streak: b.streak, tier: b.tier.idx, key: b.key }; }
+
+function avatarHTML(size, { badge = false, edit = false } = {}) {
+  const b = state ? liveBest() : { streak: 0, tier: TIERS[0] }, name = me ? me.display_name : "?";
+  const img = me && me.avatar_url ? `<img src="${esc(me.avatar_url)}" alt="">` : `<span class="initial">${esc(name.slice(0, 1).toUpperCase())}</span>`;
+  return `<div class="avatar" style="--sz:${size}px;--tc:${b.tier.c2};--tc2:${b.tier.c1}">${img}
+    ${badge ? `<span class="av-badge tb ${b.tier.badge}" style="--tc:${b.tier.c2};--tc2:${b.tier.c1}">${b.tier.sym} ${b.streak}</span>` : ""}
+    ${edit ? `<label class="av-edit" aria-label="Change photo">📷<input type="file" accept="image/*" id="avFile" hidden></label>` : ""}</div>`;
+}
+function glowName(name) { const t = state ? liveBest().tier : TIERS[0]; return `<span class="glowname g-${t.badge}" style="--tc:${t.c2};--tc2:${t.c1}">${esc(name)}</span>`; }
+function renderMe() {
+  const btn = $("#meBtn"); if (!btn) return;
+  btn.innerHTML = avatarHTML(38) + `<i class="sync-dot ${syncState}" title="${syncState === "saved" ? "Synced" : syncState}"></i>`;
+  btn.classList.toggle("on", state.page === "profile");
+}
+
+/* ---------- Signed out ---------- */
+function signedOut(on) { document.body.classList.toggle("signed-out", on); }
+function renderAuth(mode = "login", note = "") {
+  stopFx(); closeSheet(); signedOut(true);
+  try { const ui = JSON.parse(localStorage.getItem(UI_KEY) || "{}"); document.documentElement.dataset.skin = ui.skin || "dark"; } catch (e) {}
+  setAccent(ACCENTS[0]);
+  const signup = mode === "signup";
+  $("#view").innerHTML = `
+    <div class="auth">
+      <div class="auth-logo">${ringSVG({ tier: TIERS[3], frac: .72, total: 23, streak: 17, reached: false })}<span>⚡</span></div>
+      <h1>Streak Charger</h1>
+      <p class="sub" style="text-align:center">Your compound bet tracker, now with an account that syncs across your devices.</p>
+      <div class="glass card">
+        <div class="seg" style="margin-bottom:16px"><button data-am="login" class="${signup ? "" : "on"}">Log in</button><button data-am="signup" class="${signup ? "on" : ""}">Sign up</button></div>
+        ${note ? `<div class="okmsg">${note}</div>` : ""}
+        <form id="authForm" novalidate>
+          ${signup ? `<div class="field"><label for="aName">Display name</label><input id="aName" autocomplete="nickname" maxlength="20" placeholder="e.g. SkyHigh"><div class="hint" id="aNameHint">${NAME_HINT} Everyone will see this.</div></div>` : ""}
+          <div class="field"><label for="aEmail">Email</label><input id="aEmail" type="email" autocomplete="email" inputmode="email"></div>
+          <div class="field"><label for="aPass">Password</label><input id="aPass" type="password" autocomplete="${signup ? "new-password" : "current-password"}" minlength="6"></div>
+          <div class="err" id="aErr"></div>
+          <button class="btn" id="aGo" type="submit">${signup ? "Create account" : "Log in"}</button>
+        </form>
+        ${signup ? "" : `<button class="linkbtn" id="aForgot">Forgot password?</button>`}
+      </div>
+    </div>`;
+  document.querySelectorAll("[data-am]").forEach(b => b.onclick = () => renderAuth(b.dataset.am));
+  const err = $("#aErr"), go = $("#aGo");
+  if (signup) {
+    let t = null;
+    $("#aName").oninput = e => {
+      clearTimeout(t); const v = e.target.value.trim(), h = $("#aNameHint");
+      if (!v) { h.textContent = NAME_HINT; h.className = "hint"; return; }
+      if (!NAME_RE.test(v)) { h.textContent = NAME_HINT; h.className = "hint bad"; return; }
+      t = setTimeout(async () => { try { const ok = await Cloud.nameAvailable(v); if ($("#aName") && $("#aName").value.trim() === v) { h.textContent = ok ? `✓ ${v} is available` : `${v} is taken`; h.className = "hint " + (ok ? "good" : "bad"); } } catch (e) {} }, 350);
+    };
+  }
+  $("#authForm").onsubmit = async e => {
+    e.preventDefault(); err.textContent = "";
+    const email = $("#aEmail").value.trim(), pass = $("#aPass").value, name = signup ? $("#aName").value.trim() : "";
+    if (signup && !NAME_RE.test(name)) return err.textContent = "Display name: " + NAME_HINT;
+    if (!/^\S+@\S+\.\S+$/.test(email)) return err.textContent = "Enter your email address.";
+    if (pass.length < 6) return err.textContent = "Use a password of at least 6 characters.";
+    go.disabled = true; go.textContent = signup ? "Creating account…" : "Logging in…";
+    try {
+      if (signup) {
+        if (!(await Cloud.nameAvailable(name))) throw new Error("That display name is taken.");
+        const r = await Cloud.signUp(email, pass, name);
+        if (r.needsConfirm) return renderAuth("login", `Almost there. We sent a confirmation link to <b>${esc(email)}</b>. Tap it, then log in here.`);
+      } else await Cloud.signIn(email, pass);
+      await startSignedIn();
+    } catch (x) { err.textContent = Cloud.nice(x); go.disabled = false; go.textContent = signup ? "Create account" : "Log in"; }
+  };
+  const fg = $("#aForgot");
+  if (fg) fg.onclick = async () => {
+    const email = $("#aEmail").value.trim();
+    if (!/^\S+@\S+\.\S+$/.test(email)) return err.textContent = "Type your email above first, then tap Forgot password.";
+    try { await Cloud.resetPassword(email); renderAuth("login", `We sent a password reset link to <b>${esc(email)}</b>.`); } catch (x) { err.textContent = Cloud.nice(x); }
+  };
+}
+function openNewPassword() {
+  const sh = openSheet(`<h3>Choose a new password</h3><div class="sub">You opened a password reset link. Pick a new password for your account.</div>
+    <div class="field"><label for="npPass">New password</label><input id="npPass" type="password" autocomplete="new-password"></div><div class="err" id="npErr"></div><button class="btn" id="npGo">Save password</button>`);
+  sh.querySelector("#npGo").onclick = async () => {
+    const p = sh.querySelector("#npPass").value;
+    if (p.length < 6) return sh.querySelector("#npErr").textContent = "Use at least 6 characters.";
+    try { await Cloud.setPassword(p); closeSheet(); toast("Password updated."); } catch (x) { sh.querySelector("#npErr").textContent = Cloud.nice(x); }
+  };
+}
+function renderSetupNeeded() {
+  signedOut(true);
+  $("#view").innerHTML = `<div class="auth"><h1>Almost ready</h1>
+    <div class="glass card"><p style="margin-top:0">This copy of Streak Charger isn't connected to a database yet, so accounts and syncing are off.</p>
+    <p class="cap">Open <b>config.js</b> and paste in your Supabase Project URL and anon key. The setup guide (SETUP.md) walks you through it.</p>
+    <button class="btn sec" id="useLocal">Use it on this device for now</button></div></div>`;
+  $("#useLocal").onclick = () => { localMode = true; state = deviceState() || freshState(); startApp(); };
+}
+
+/* ---------- Signed in ---------- */
+function loading(msg) { signedOut(true); $("#view").innerHTML = `<div class="auth"><div class="auth-logo spin-slow">${ringSVG({ tier: TIERS[3], frac: .3, total: 23, streak: 0, reached: false })}</div><p class="sub" style="text-align:center">${msg}</p></div>`; }
+async function startSignedIn() {
+  if (starting) return; starting = true;
+  try {
+    loading("Loading your trackers…");
+    me = await Cloud.getProfile();
+    const remote = await Cloud.load();
+    const cache = Cloud.readCache();
+    // Changes made on this device that never reached the server are merged back in and synced.
+    let s = cache && cache.dirty && cache.state ? Cloud.merge(remote, cache.state, "b") : remote;
+    const device = deviceState(), asked = localStorage.getItem(IMPORTED_KEY());
+    if (!s && device && !asked) s = (await askImport(device, true)) ? importable(device) : null;
+    state = normalise(s ? JSON.parse(JSON.stringify(s)) : freshState());
+    const ui = readUI(); if (ui.page) state.page = ui.page; if (ui.activeId && state.trackers.some(t => t.id === ui.activeId)) state.activeId = ui.activeId;
+    startApp();
+    if (remote && device && !asked) askImport(device, false).then(yes => { if (yes) importData(device, "device"); });
+  } catch (x) {
+    starting = false;
+    renderAuth("login", `<span style="color:var(--loss)">Couldn't load your account: ${esc(Cloud.nice(x))}</span>`);
+    return;
+  }
+  starting = false;
+}
+function startApp() {
+  signedOut(false);
+  evalAchievements(); save(); render();
+}
+function readUI() { try { return JSON.parse(localStorage.getItem(UI_KEY) || "{}"); } catch (e) { return {}; } }
+
+/* ---------- Importing (device data or a pasted backup) ----------
+   Imported ids are re-keyed per account with a stable hash, so the same backup imported twice
+   into one account merges instead of duplicating, and two accounts on one device never clash. */
+function hashId(s) { let h1 = 0xdeadbeef, h2 = 0x41c6ce57; for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); h1 = Math.imul(h1 ^ c, 2654435761); h2 = Math.imul(h2 ^ c, 1597334677); } h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909); h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909); return (h2 >>> 0).toString(36) + (h1 >>> 0).toString(36); }
+function importable(src) {
+  const salt = Cloud.user ? Cloud.user.id : "local", rk = id => "i" + hashId(salt + ":" + id);
+  const s = JSON.parse(JSON.stringify(src));
+  for (const t of s.trackers) { t.id = rk(t.id); t.bets.forEach(b => b.id = rk(b.id)); t.actions.forEach(a => a.id = rk(a.id)); }
+  if (s.activeId) s.activeId = rk(s.activeId);
+  return s;
+}
+// The device copy, or null once every tracker and bet in it is already in this account.
+function notYetImported(device) {
+  if (!device || !state) return null;
+  const have = new Set(state.trackers.flatMap(t => [t.id, ...t.bets.map(b => b.id)])), dev = importable(device);
+  return dev.trackers.some(t => !have.has(t.id) || t.bets.some(b => !have.has(b.id))) ? device : null;
+}
+function importSummary(s) { const n = s.trackers.reduce((a, t) => a + t.bets.length, 0); return `${plural(s.trackers.length, "tracker")} and ${plural(n, "bet")}`; }
+function askImport(device, fresh) {
+  return new Promise(res => {
+    let done = false; const finish = v => { if (done) return; done = true; try { localStorage.setItem(IMPORTED_KEY(), v ? "yes" : "no"); } catch (e) {} closeSheet(); res(v); };
+    const sh = openSheet(`<h3>Bring your data across?</h3>
+      <div class="sub">This device has ${importSummary(device)} saved from before you had an account. ${fresh ? "Import them to start your account with everything you've logged." : "Add them to your account alongside what's already there."}</div>
+      <div class="btns"><button class="btn" id="imYes">Import to my account</button><button class="btn sec" id="imNo">Start fresh</button></div>
+      <div class="note" style="margin:10px 0 0">You'll only be asked once. Your device copy isn't deleted, and you can import it later from your profile.</div>`);
+    sh.querySelector("#imYes").onclick = () => finish(true);
+    sh.querySelector("#imNo").onclick = () => finish(false);
+    scrim.addEventListener("closing", () => { if (!done) { done = true; res(false); } });
+  });
+}
+function importData(src, what) {
+  const before = state.trackers.length;
+  const merged = Cloud.merge(state, importable(normalise(JSON.parse(JSON.stringify(src)))), "a");
+  const ui = { page: state.page, activeId: state.activeId };
+  state = normalise(merged); Object.assign(state, ui);
+  evalAchievements(); save(); render();
+  toast(`Imported ${what === "device" ? "this device's data" : "the backup"}: ${plural(state.trackers.length - before, "new tracker")}.`);
+}
+
+/* ---------- Profile ---------- */
+function renderProfile() {
+  if (localMode) {
+    $("#view").innerHTML = `<div class="head" style="padding-top:18px"><div><div class="eyebrow">Profile</div><h1>On this device only</h1></div></div>
+      <div class="glass card"><div class="cap">Accounts, profiles and syncing switch on once config.js has your Supabase keys.</div><button class="btn sec" data-nav="awards">🎨 Themes and awards</button></div>`;
+    return;
+  }
+  const b = liveBest(), device = notYetImported(deviceState());
+  $("#view").innerHTML = `
+    <div class="profile-hero">
+      ${avatarHTML(132, { badge: true, edit: true })}
+      <h1>${glowName(me.display_name)}</h1>
+      <div class="sub" style="margin:0">${tierBadge(b.tier, undefined, false)} ${b.streak ? `${plural(b.streak, "win")} in a row on ${esc(b.t.name)}` : "No live streak yet"}</div>
+      <div class="err" id="avErr" style="margin-top:6px"></div>
+    </div>
+    <div class="glass card">
+      <h3>Display name</h3><div class="cap">${NAME_HINT} Must be unique.</div>
+      <div class="field" style="margin-bottom:8px"><input id="pName" maxlength="20" value="${esc(me.display_name)}"><div class="hint" id="pNameHint"></div></div>
+      <button class="btn sec" id="pNameSave">Save name</button>
+    </div>
+    <div class="glass card">
+      <h3>Account</h3><div class="cap">${esc(Cloud.user.email)} · <span id="syncText">${syncLabel()}</span></div>
+      <div class="row2"><button class="btn sec" id="bkCopy">Copy backup</button><button class="btn sec" id="bkRestore">Import backup</button></div>
+      ${device ? `<button class="btn sec" id="imDevice" style="margin-top:8px">Import ${importSummary(device)} from this device</button>` : ""}
+    </div>
+    <div class="glass card"><button class="btn sec" data-nav="awards">🎨 Themes and awards</button></div>
+    <button class="btn warn" id="signOut" style="margin-top:14px">Log out</button>`;
+  $("#avFile").onchange = async e => {
+    const f = e.target.files && e.target.files[0]; e.target.value = ""; if (!f) return;
+    $("#avErr").textContent = ""; $(".profile-hero .avatar").classList.add("busy");
+    try { me = await Cloud.uploadAvatar(f, me.avatar_url); render(); toast("Photo updated."); }
+    catch (x) { $("#avErr").textContent = Cloud.nice(x); $(".profile-hero .avatar").classList.remove("busy"); }
+  };
+  $("#pNameSave").onclick = async () => {
+    const v = $("#pName").value.trim(), h = $("#pNameHint");
+    if (v === me.display_name) return;
+    if (!NAME_RE.test(v)) { h.textContent = NAME_HINT; h.className = "hint bad"; return; }
+    try { if (!(await Cloud.nameAvailable(v))) throw new Error("That display name is taken."); me = await Cloud.updateProfile({ display_name: v }); render(); toast("Name saved."); }
+    catch (x) { h.textContent = Cloud.nice(x); h.className = "hint bad"; }
+  };
+  $("#bkCopy").onclick = copyBackup;
+  $("#bkRestore").onclick = openRestore;
+  if ($("#imDevice")) $("#imDevice").onclick = () => importData(device, "device");
+  $("#signOut").onclick = async () => { await Cloud.signOut(); state = null; me = null; renderAuth("login", "You're logged out."); };
+}
+function syncLabel() { return { saved: "✓ synced to your account", saving: "saving…", offline: "offline, will sync when you're back", error: "sync problem" }[syncState] || ""; }
+
+/* ---------- Coming-soon pages ---------- */
+const SOON = {
+  friends: { icon: "👥", title: "Friends", text: "Add friends by display name, see their live streaks and tiers, and cheer them on.", items: ["Find people by display name", "Friend requests", "Live streak badges"] },
+  leaderboard: { icon: "🏆", title: "Leaderboard", text: "See who's on the longest live streak, the highest tier and the biggest banked total.", items: ["Live streak ranking", "Tier ranking", "Friends-only view"] },
+  chat: { icon: "💬", title: "Chat", text: "Talk bets with your friends, share a slip and react to each other's wins.", items: ["Friend chats", "Share a bet", "Reactions"] },
+};
+function renderSoon(id) {
+  const p = SOON[id];
+  $("#view").innerHTML = `<div class="head" style="padding-top:18px"><div><div class="eyebrow">Coming soon</div><h1>${p.title}</h1></div></div>
+    <div class="glass card soon"><div class="soon-ic">${p.icon}</div><p>${p.text}</p><ul>${p.items.map(x => `<li>${x}</li>`).join("")}</ul><div class="cap" style="margin:0">This part arrives in the next stage.</div></div>`;
+}
+
+/* =========================================================
+   Boot
+   ========================================================= */
+Cloud.onStatus = (s, msg) => {
+  syncState = s; if (!state) return;
+  const d = $("#meBtn .sync-dot"); if (d) d.className = "sync-dot " + s;
+  const st = $("#syncText"); if (st) st.textContent = syncLabel();
+  if (s === "error" && msg) toast(msg, "bad");
+};
+// The server refused a change (a locked bet, say). Reload the account's real data.
+Cloud.onRejected = async () => { try { const s = await Cloud.load(); if (s && state) { const ui = { page: state.page, activeId: state.activeId }; state = normalise(s); Object.assign(state, ui); Cloud.writeCache(state, false); render(); } } catch (e) {} };
+// Coming back to the app pulls changes made on another device.
+async function refreshFromServer() {
+  if (!state || localMode || scrim || Cloud.pending()) return;
+  try {
+    const s = await Cloud.fetchAll(); if (!s || scrim || Cloud.pending()) return;
+    const cur = JSON.stringify(state.trackers);
+    const ui = { page: state.page, activeId: state.activeId }; Cloud.prime(s);
+    const next = normalise(s); Object.assign(next, ui);
+    if (!next.trackers.some(t => t.id === next.activeId)) next.activeId = next.trackers[0].id;
+    if (JSON.stringify(next.trackers) !== cur || next.skin !== state.skin) { state = next; render(); } else state = next;
+  } catch (e) {}
+}
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") refreshFromServer(); });
+setInterval(() => { if (state && !scrim && (state.page === "home" || state.page === "stats")) renderTabs(); }, 60000);
+(async () => {
+  if (!Cloud.configured) return renderSetupNeeded();
+  Cloud.onAuth((event, user) => {
+    if (event === "PASSWORD_RECOVERY") openNewPassword();
+    else if (event === "SIGNED_IN" && user && !state) startSignedIn();
+    else if (event === "SIGNED_OUT" && state) { state = null; me = null; renderAuth("login", "You're logged out."); }
+  });
+  if (await Cloud.currentUser()) startSignedIn(); else if (!starting) renderAuth();
+})();
+})();
