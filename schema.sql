@@ -1,5 +1,5 @@
 -- =====================================================================
--- Streak Charger · Stage 1 database
+-- Streak Charger database (Stage 1: accounts and sync · Stage 2: friends)
 -- Paste this whole file into Supabase → SQL Editor → New query → Run.
 -- It is safe to run again: it only creates things that don't exist yet
 -- and replaces the functions and security rules with the latest version.
@@ -17,6 +17,10 @@ create table if not exists public.profiles (
 );
 -- Display names are unique regardless of capitals ("Sky" and "sky" clash).
 create unique index if not exists profiles_display_name_unique on public.profiles (lower(display_name));
+-- Stats the database works out from your logged bets (Stage 2). Nobody can type these in.
+alter table public.profiles add column if not exists best_streak    integer not null default 0;
+alter table public.profiles add column if not exists streak_tracker text;
+alter table public.profiles add column if not exists banked         double precision not null default 0;
 
 -- ---------- Settings: themes, achievements, recent sports, stats layout ----------
 create table if not exists public.user_settings (
@@ -172,6 +176,11 @@ end $$;
 create or replace function public.guard_profile_update() returns trigger language plpgsql as $$
 begin
   if new.id <> old.id or new.created_at <> old.created_at then raise exception 'Not allowed.'; end if;
+  -- Streak, tier and banked total come from your logged bets only (see recompute_profile_stats).
+  if current_user in ('authenticated', 'anon') then
+    new.streak := old.streak; new.tier_idx := old.tier_idx; new.best_streak := old.best_streak;
+    new.streak_tracker := old.streak_tracker; new.banked := old.banked;
+  end if;
   new.updated_at := now();
   return new;
 end $$;
@@ -272,3 +281,168 @@ create policy "avatar replace own folder" on storage.objects for update to authe
 drop policy if exists "avatar delete own folder" on storage.objects;
 create policy "avatar delete own folder" on storage.objects for delete to authenticated
   using (bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text);
+
+-- =====================================================================
+-- Stage 2 · Streaks worked out by the database
+-- Every time bets, run actions or trackers change, the owner's profile
+-- is recalculated from their logged bets, using the same rules as the app.
+-- =====================================================================
+create or replace function public.tier_for(n integer) returns integer language sql immutable as $$
+  select (select count(*) from unnest(array[0,5,10,15,20,25,35,50,65,80,90,100,125,150,175,200]) m where m <= n)::integer - 1;
+$$;
+
+create or replace function public.recompute_profile_stats(uid uuid) returns void
+language plpgsql security definer set search_path = public as $$
+declare
+  t record; e record;
+  bal double precision; amt double precision; streak integer;
+  live integer := 0; live_name text; ever integer := 0; banked_total double precision := 0;
+begin
+  for t in select * from public.trackers where user_id = uid order by position, created_at loop
+    bal := t.start_balance; streak := 0;
+    for e in
+      select 0 as k, b.created_at as at, b.id as id, b.result, b.odds, null::text as type, null::jsonb as payload
+        from public.bets b where b.tracker_id = t.id
+      union all
+      select 1, a.at, a.id, null, null, a.type, a.payload from public.tracker_actions a where a.tracker_id = t.id
+      order by at, k, id
+    loop
+      if e.k = 0 then
+        if e.result = 'win' then bal := bal * e.odds; streak := streak + 1; ever := greatest(ever, streak);
+        elsif e.result = 'loss' then bal := t.start_balance; streak := 0;
+        end if;
+      elsif e.type = 'bank' then
+        amt := case when jsonb_typeof(e.payload -> 'amount') = 'number' then (e.payload ->> 'amount')::double precision else 0 end;
+        amt := greatest(0, least(amt, bal)); bal := bal - amt; banked_total := banked_total + amt;
+      elsif e.type = 'end' then
+        banked_total := banked_total + bal; bal := t.start_balance; streak := 0;
+      end if;
+    end loop;
+    if streak > live then live := streak; live_name := t.name; end if;
+  end loop;
+  update public.profiles
+     set streak = live, tier_idx = public.tier_for(live), best_streak = ever, streak_tracker = live_name, banked = round(banked_total::numeric, 2)
+   where id = uid;
+end $$;
+revoke all on function public.recompute_profile_stats(uuid) from public, anon, authenticated;
+
+create or replace function public.after_activity_change() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare uid uuid;
+begin
+  for uid in select distinct user_id from changed loop perform public.recompute_profile_stats(uid); end loop;
+  return null;
+end $$;
+drop trigger if exists bets_stats_insert on public.bets;
+create trigger bets_stats_insert after insert on public.bets referencing new table as changed for each statement execute function public.after_activity_change();
+drop trigger if exists bets_stats_update on public.bets;
+create trigger bets_stats_update after update on public.bets referencing new table as changed for each statement execute function public.after_activity_change();
+drop trigger if exists actions_stats_insert on public.tracker_actions;
+create trigger actions_stats_insert after insert on public.tracker_actions referencing new table as changed for each statement execute function public.after_activity_change();
+drop trigger if exists trackers_stats_insert on public.trackers;
+create trigger trackers_stats_insert after insert on public.trackers referencing new table as changed for each statement execute function public.after_activity_change();
+drop trigger if exists trackers_stats_update on public.trackers;
+create trigger trackers_stats_update after update on public.trackers referencing new table as changed for each statement execute function public.after_activity_change();
+
+-- Bring existing accounts up to date.
+select public.recompute_profile_stats(id) from public.profiles;
+
+-- =====================================================================
+-- Stage 2 · Friends
+-- A request is one row. The person who receives it can accept (it becomes
+-- a friendship) or decline (it's removed). Either friend can unfriend.
+-- All changes go through the functions below; nobody edits rows directly.
+-- =====================================================================
+create table if not exists public.friendships (
+  id          bigint generated always as identity primary key,
+  requester   uuid not null references public.profiles (id) on delete cascade,
+  addressee   uuid not null references public.profiles (id) on delete cascade,
+  status      text not null default 'pending' check (status in ('pending', 'accepted')),
+  created_at  timestamptz not null default now(),
+  accepted_at timestamptz,
+  check (requester <> addressee)
+);
+create unique index if not exists friendships_pair on public.friendships (least(requester, addressee), greatest(requester, addressee));
+create index if not exists friendships_addressee_idx on public.friendships (addressee);
+alter table public.friendships enable row level security;
+drop policy if exists "see your own friendships" on public.friendships;
+create policy "see your own friendships" on public.friendships for select to authenticated
+  using (auth.uid() in (requester, addressee));
+
+-- Send a request. If they already asked you, this accepts theirs instead.
+-- Returns 'sent' or 'friends'.
+create or replace function public.friend_request(target uuid) returns text
+language plpgsql security definer set search_path = public as $$
+declare me uuid := auth.uid(); f public.friendships;
+begin
+  if me is null then raise exception 'Log in first.'; end if;
+  if target = me then raise exception 'You can''t add yourself.'; end if;
+  if not exists (select 1 from public.profiles where id = target) then raise exception 'That person doesn''t exist.'; end if;
+  select * into f from public.friendships
+   where least(requester, addressee) = least(me, target) and greatest(requester, addressee) = greatest(me, target) for update;
+  if found then
+    if f.status = 'accepted' then return 'friends'; end if;
+    if f.requester = me then return 'sent'; end if;
+    update public.friendships set status = 'accepted', accepted_at = now() where id = f.id;
+    return 'friends';
+  end if;
+  if (select count(*) from public.friendships where requester = me and status = 'pending') >= 100 then
+    raise exception 'You have too many requests waiting. Cancel some first.';
+  end if;
+  insert into public.friendships (requester, addressee) values (me, target);
+  return 'sent';
+end $$;
+
+-- Accept or decline a request someone sent you.
+create or replace function public.friend_respond(other uuid, accept boolean) returns text
+language plpgsql security definer set search_path = public as $$
+declare me uuid := auth.uid();
+begin
+  if me is null then raise exception 'Log in first.'; end if;
+  if accept then
+    update public.friendships set status = 'accepted', accepted_at = now()
+     where requester = other and addressee = me and status = 'pending';
+    if not found then raise exception 'That request isn''t there any more.'; end if;
+    return 'friends';
+  end if;
+  delete from public.friendships where requester = other and addressee = me and status = 'pending';
+  return 'declined';
+end $$;
+
+-- Cancel a request you sent, or unfriend someone.
+create or replace function public.friend_remove(other uuid) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if auth.uid() is null then raise exception 'Log in first.'; end if;
+  delete from public.friendships
+   where least(requester, addressee) = least(auth.uid(), other) and greatest(requester, addressee) = greatest(auth.uid(), other);
+end $$;
+
+-- Your friends and requests, with each person's public profile.
+create or replace function public.my_friends()
+returns table (id uuid, display_name text, avatar_url text, streak integer, tier_idx integer, best_streak integer,
+               streak_tracker text, banked double precision, status text, incoming boolean, since timestamptz)
+language sql stable set search_path = public as $$
+  select p.id, p.display_name, p.avatar_url, p.streak, p.tier_idx, p.best_streak, p.streak_tracker, p.banked,
+         f.status, f.addressee = auth.uid(), coalesce(f.accepted_at, f.created_at)
+    from public.friendships f
+    join public.profiles p on p.id = case when f.requester = auth.uid() then f.addressee else f.requester end
+   where auth.uid() in (f.requester, f.addressee);
+$$;
+
+-- Find people by display name (names starting with the search come first).
+create or replace function public.search_profiles(q text)
+returns table (id uuid, display_name text, avatar_url text, streak integer, tier_idx integer)
+language sql stable set search_path = public as $$
+  select p.id, p.display_name, p.avatar_url, p.streak, p.tier_idx
+    from public.profiles p
+   where length(trim(q)) >= 2 and p.id <> auth.uid()
+     and strpos(lower(p.display_name), lower(trim(q))) > 0
+   order by strpos(lower(p.display_name), lower(trim(q))), length(p.display_name), p.display_name
+   limit 20;
+$$;
+
+revoke all on function public.friend_request(uuid), public.friend_respond(uuid, boolean), public.friend_remove(uuid),
+                       public.my_friends(), public.search_profiles(text) from public, anon;
+grant execute on function public.friend_request(uuid), public.friend_respond(uuid, boolean), public.friend_remove(uuid),
+                          public.my_friends(), public.search_profiles(text) to authenticated;
