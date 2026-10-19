@@ -2,5 +2,5 @@
 // Both are meant to be public: your data is protected by the security rules in schema.sql, not by hiding these.
 window.STREAK_CONFIG = {
   supabaseUrl: "https://amobowrfqqyexmmajnos.supabase.co",
-  supabaseAnonKey: "PASTE-YOUR-PUBLISHABLE-OR-ANON-KEY-HERE",
+  supabaseAnonKey: "sb_publishable_wQvY7U2ziICOYMA8NzfTxw_IIsV_JV2",
 };
