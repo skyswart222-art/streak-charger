@@ -2090,7 +2090,7 @@ function renderChat() {
   const mates = (friends || []).filter(f => f.status === "accepted"), starters = mates.filter(f => !withChat.has(f.id));
   $("#view").innerHTML = `
     <div class="head" style="padding-top:18px"><div><div class="eyebrow">${unreadCount() ? plural(unreadCount(), "unread message") : "Your chats"}</div><h1>Chat</h1></div>
-      ${mates.length >= 2 ? `<button class="ghost" data-newgroup>👥 New group</button>` : ""}</div>
+      <button class="ghost" data-newgroup>👥 New group</button></div>
     ${chatsErr ? `<div class="glass card"><div class="err" style="margin:0">${esc(chatsErr)}</div></div>` : ""}
     ${!chats && !chatsErr ? `<div class="glass card"><div class="cap" style="margin:0">Loading your chats…</div></div>` : ""}
     ${list.length ? `<div class="glass card flist">${list.map(x => x.html).join("")}</div>` : ""}
@@ -2372,7 +2372,12 @@ document.addEventListener("click", async e => {
   const vn = t.closest("[data-voice]"); if (vn) return playVoice(vn);
   if (t.closest("[data-unbet]")) { chatBet = null; return renderAttached(); }
   if (t.closest("[data-chatolder]")) return loadConvo(chatWith, true);
-  if (t.closest("[data-newgroup]")) return openNewGroup();
+  if (t.closest("[data-newgroup]")) {
+    // Check with a fresh friends list, in case someone just accepted.
+    const enough = () => (friends || []).filter(f => f.status === "accepted").length >= 2;
+    if (!enough()) await loadFriends(true);
+    return enough() ? openNewGroup() : toast("Groups need at least two friends. Add one more friend, then tap New group.");
+  }
   if (t.closest("[data-groupinfo]")) return openGroupInfo();
   const r = t.closest("[data-react]");
   if (r) {

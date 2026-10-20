@@ -719,6 +719,12 @@ html { touch-action: manipulation; -webkit-text-size-adjust: 100%; text-size-adj
 /* Chat header: solid, no see-through blur, and solid above it when the page is pulled down. */
 .convo-head { background: var(--bg); -webkit-backdrop-filter: none; backdrop-filter: none; isolation: isolate; }
 .convo-head::before { content: ""; position: absolute; z-index: -1; inset: 0; background: var(--bg); box-shadow: 0 0 0 100vmax var(--bg); clip-path: inset(-100vmax 0 0 0); }
+/* iPhone blurs a band just under the status bar in Home Screen apps. Keep the top row below that band
+   so photos and names stay sharp (only when the app runs edge to edge under the status bar). */
+@supports (padding-top: env(safe-area-inset-top)) {
+  .topbar { padding-top: min(26px, env(safe-area-inset-top, 0px)); }
+  .convo-head { padding-top: calc(10px + min(26px, env(safe-area-inset-top, 0px))); }
+}
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
