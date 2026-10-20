@@ -513,7 +513,7 @@ function renderTabs() {
   if (!show) return;
   $("#tabs").innerHTML = state.trackers.map(t => {
     const s = compute(t);
-    return `<button class="tab ${t.id === state.activeId ? "active" : ""}" data-tab="${t.id}"><span class="dot" style="background:${t.accent}"></span>${esc(t.name)}${t.paused ? " ⏸" : s.pending ? " ⏳" : ""}</button>`;
+    return `<button class="tab ${t.id === state.activeId ? "active" : ""}" data-tab="${t.id}"><span class="dot" style="background:${t.accent}"></span>${esc(t.name)}${t.shared === false && !localMode ? " 🔒" : ""}${t.paused ? " ⏸" : s.pending ? " ⏳" : ""}</button>`;
   }).join("") + `<button class="tab" data-add aria-label="Add tracker">＋</button><button class="tab ic ${state.page === "trackers" ? "active" : ""}" data-nav="trackers" aria-label="All trackers"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="2"/><rect x="13" y="4" width="7" height="7" rx="2"/><rect x="4" y="13" width="7" height="7" rx="2"/><rect x="13" y="13" width="7" height="7" rx="2"/></svg></button>`;
   const act = $("#tabs .tab.active"); if (act) act.scrollIntoView({ inline: "nearest", block: "nearest" });
 }
@@ -1131,6 +1131,7 @@ function openOptions(t, isNew) {
     ${t.targetEdits.length ? `<div class="note">${t.targetEdits.map(x => `${money(x.from)} → ${money(x.to)} on ${day(x.at)}`).join(" · ")}</div>` : ""}
     <div class="field"><label>Odds for the forecast</label><div class="seg"><button data-m="auto">Typical of last 10</button><button data-m="fixed">Fixed</button></div></div>
     <div class="field"><label for="oOdds" id="oOddsLbl"></label><input id="oOdds" inputmode="decimal" value="${t.fixedOdds}"><div class="hint" id="oOddsHint"></div></div>
+    ${localMode ? "" : `<label class="vis-row"><input type="checkbox" id="oShared" ${t.shared === false ? "" : "checked"}><span><b>👥 Show to friends and community</b><small>Ticked: its bets show in the feed and count on leaderboards and in challenges. Unticked: only you can see it.</small></span></label>`}
     <div class="err" id="oErr"></div>
     <button class="btn" id="oSave">Save</button>
     ${isNew ? "" : `
@@ -1171,7 +1172,10 @@ function openOptions(t, isNew) {
       t.actions.push({ id: uid(), type: "target", at, from: t.target, to: target });
     }
     Object.assign(t, { name, start, target, fixedOdds: fo, oddsMode: mode, accent });
+    const sharedBox = sh.querySelector("#oShared"), wasShared = t.shared !== false;
+    if (sharedBox && sharedBox.checked !== wasShared) t.shared = sharedBox.checked;
     save(); closeSheet(); render();
+    if (sharedBox && !isNew && sharedBox.checked !== wasShared) toast(sharedBox.checked ? "👥 Friends and the community can see this tracker." : "🔒 Only you can see this tracker now.");
   };
   if (isNew) return;
   sh.querySelectorAll("[data-amt]").forEach(b => b.onclick = () => { sh.querySelector("#bkAmt").value = b.dataset.amt; });

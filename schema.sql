@@ -47,6 +47,8 @@ create table if not exists public.trackers (
   updated_at    timestamptz not null default now()
 );
 create index if not exists trackers_user_idx on public.trackers (user_id);
+-- Unticked in Tracker options: only you can see this tracker. It stays out of the feed, leaderboards and challenges.
+alter table public.trackers add column if not exists shared boolean not null default true;
 
 -- ---------- Bets ----------
 create table if not exists public.bets (
@@ -298,7 +300,8 @@ declare
   bal double precision; amt double precision; streak integer;
   live integer := 0; live_name text; ever integer := 0; banked_total double precision := 0;
 begin
-  for t in select * from public.trackers where user_id = uid order by position, created_at loop
+  -- Only trackers you show to others count towards the streak friends and the community see.
+  for t in select * from public.trackers where user_id = uid and shared order by position, created_at loop
     bal := t.start_balance; streak := 0;
     for e in
       select 0 as k, b.created_at as at, b.id as id, b.result, b.odds, null::text as type, null::jsonb as payload
@@ -701,16 +704,19 @@ language sql stable security definer set search_path = public as $$
     union
     select case when f.requester = auth.uid() then f.addressee else f.requester end
       from public.friendships f where f.status = 'accepted' and auth.uid() in (f.requester, f.addressee)
+  ), seen as (
+    -- Your own trackers, and the ones your friends show to others.
+    select t.id from public.trackers t where t.user_id in (select id from people) and (t.shared or t.user_id = auth.uid())
   ), ev as (
     select 'bet'::text as kind, b.id as ref_id, b.created_at as at, b.user_id, b.id as bet_id, b.tracker_id, null::double precision as amount
-      from public.bets b where b.user_id in (select id from people)
+      from public.bets b where b.tracker_id in (select id from seen)
     union all
     select 'result', b.id, b.settled_at, b.user_id, b.id, b.tracker_id, null
-      from public.bets b where b.user_id in (select id from people) and b.result <> 'pending' and b.settled_at is not null
+      from public.bets b where b.tracker_id in (select id from seen) and b.result <> 'pending' and b.settled_at is not null
     union all
     select 'bank', a.id, a.at, a.user_id, null, a.tracker_id,
            case when jsonb_typeof(a.payload -> 'amount') = 'number' then (a.payload ->> 'amount')::double precision else 0 end
-      from public.tracker_actions a where a.user_id in (select id from people) and a.type = 'bank'
+      from public.tracker_actions a where a.tracker_id in (select id from seen) and a.type = 'bank'
   ), page as (
     select ev.*, ev.kind || ':' || ev.ref_id as key from ev
      where before_at is null or (ev.at, ev.kind || ':' || ev.ref_id) < (before_at, coalesce(before_key, ''))
@@ -1067,6 +1073,7 @@ declare b record; run integer := 0; best integer := 0;
 begin
   for b in select x.result from public.bets x
             where x.user_id = uid and x.logged_at >= s and x.logged_at <= e
+              and exists (select 1 from public.trackers t where t.id = x.tracker_id and t.shared)
               and x.created_at >= s_ms - 300000 and x.result <> 'pending' and x.settled_at <= e_ms
             order by x.created_at, x.id loop
     if b.result = 'win' then run := run + 1; best := greatest(best, run); else run := 0; end if;
