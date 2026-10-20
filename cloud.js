@@ -97,7 +97,7 @@ async function signUp(email, password, displayName) {
 async function signIn(email, password) { const data = must(await sb.auth.signInWithPassword({ email, password })); user = data.user; return user; }
 async function resetPassword(email) { must(await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname })); }
 async function setPassword(password) { must(await sb.auth.updateUser({ password })); }
-async function signOut() { await flush().catch(() => {}); try { localStorage.removeItem(cacheKey()); } catch (e) {} await sb.auth.signOut(); user = null; synced = new Map(); }
+async function signOut() { await flush().catch(() => {}); offChat(); try { localStorage.removeItem(cacheKey()); } catch (e) {} await sb.auth.signOut(); user = null; synced = new Map(); }
 
 /* ---------- Profile ---------- */
 async function getProfile() { return must(await sb.from("profiles").select("*").eq("id", user.id).maybeSingle()); }
@@ -127,6 +127,29 @@ const friendRequest = id => rpc("friend_request", { target: id });
 const friendRespond = (id, accept) => rpc("friend_respond", { other: id, accept });
 const friendRemove = id => rpc("friend_remove", { other: id });
 const leaderboard = (scope, metric) => rpc("leaderboard", { scope, metric, lim: 50 });
+
+/* ---------- Chat ---------- */
+const myChats = () => rpc("my_chats");
+const chatMessages = (other, beforeId) => rpc("chat_messages", { other, before_id: beforeId || null, lim: 60 });
+const chatMarkRead = other => rpc("chat_mark_read", { other });
+const chatReact = (msg, emoji) => rpc("chat_react", { msg, emoji });
+async function sendMessage(other, body, betId) {
+  if (betId) await flush(); // a shared bet has to reach the server before a message can point at it
+  return must(await sb.from("messages").insert({ recipient: other, body: body || "", bet_id: betId || null }).select("id").single());
+}
+// Live updates for new messages and reactions. The database only sends rows this account may read.
+let chatChannel = null;
+function onChat(cb) {
+  if (chatChannel || !sb.channel || !user) return;
+  try {
+    chatChannel = sb.channel("chat-" + user.id)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, p => cb("message", p.new))
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "messages" }, p => cb("read", p.new))
+      .on("postgres_changes", { event: "*", schema: "public", table: "message_reactions" }, p => cb("reaction", p.new || p.old))
+      .subscribe();
+  } catch (e) { chatChannel = null; }
+}
+function offChat() { if (chatChannel) { try { sb.removeChannel(chatChannel); } catch (e) {} chatChannel = null; } }
 
 /* ---------- Loading ---------- */
 async function fetchAll() {
@@ -185,6 +208,6 @@ addEventListener("online", () => latest && flush());
 addEventListener("pagehide", () => { if (latest) flush(); });
 
 window.Cloud = { configured, currentUser, onAuth, nameAvailable, signUp, signIn, signOut, resetPassword, setPassword,
-  getProfile, updateProfile, uploadAvatar, searchProfiles, myFriends, friendRequest, friendRespond, friendRemove, leaderboard, load, fetchAll, prime, merge, readCache, writeCache, queue, flush, pending, nice,
+  getProfile, updateProfile, uploadAvatar, searchProfiles, myFriends, friendRequest, friendRespond, friendRemove, leaderboard, myChats, chatMessages, chatMarkRead, chatReact, sendMessage, onChat, offChat, load, fetchAll, prime, merge, readCache, writeCache, queue, flush, pending, nice,
   get user() { return user; }, set onStatus(f) { onStatus = f; }, set onRejected(f) { onRejected = f; } };
 })();

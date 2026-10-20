@@ -478,3 +478,146 @@ language sql stable set search_path = public as $$
 $$;
 revoke all on function public.leaderboard(text, text, integer) from public, anon;
 grant execute on function public.leaderboard(text, text, integer) to authenticated;
+
+-- =====================================================================
+-- Stage 4 · Chat
+-- One-to-one messages between friends. A message can carry one of your
+-- own logged bets; the database checks it's yours and shows its live
+-- result. Messages can't be edited or deleted. Only the two people in a
+-- chat can read it.
+-- =====================================================================
+create or replace function public.are_friends(a uuid, b uuid) returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.friendships f where f.status = 'accepted'
+                  and least(f.requester, f.addressee) = least(a, b) and greatest(f.requester, f.addressee) = greatest(a, b));
+$$;
+
+create table if not exists public.messages (
+  id         bigint generated always as identity primary key,
+  sender     uuid not null default auth.uid() references public.profiles (id) on delete cascade,
+  recipient  uuid not null references public.profiles (id) on delete cascade,
+  body       text not null default '' check (length(body) <= 1000),
+  bet_id     text references public.bets (id) on delete set null,
+  created_at timestamptz not null default now(),
+  read_at    timestamptz,
+  check (sender <> recipient),
+  check (length(trim(body)) > 0 or bet_id is not null)
+);
+create index if not exists messages_pair_idx on public.messages (least(sender, recipient), greatest(sender, recipient), id desc);
+create index if not exists messages_unread_idx on public.messages (recipient) where read_at is null;
+
+create table if not exists public.message_reactions (
+  message_id bigint not null references public.messages (id) on delete cascade,
+  user_id    uuid not null default auth.uid() references public.profiles (id) on delete cascade,
+  emoji      text not null check (emoji in ('🔥', '💪', '😂', '😬', '👏', '❤️')),
+  created_at timestamptz not null default now(),
+  primary key (message_id, user_id)
+);
+
+create or replace function public.guard_message_insert() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  new.sender := auth.uid(); new.created_at := now(); new.read_at := null;
+  if new.sender is null then raise exception 'Log in first.'; end if;
+  if not public.are_friends(new.sender, new.recipient) then raise exception 'You can only message your friends.'; end if;
+  if new.bet_id is not null and not exists (select 1 from public.bets b where b.id = new.bet_id and b.user_id = new.sender) then
+    raise exception 'You can only share your own bets.';
+  end if;
+  if (select count(*) from public.messages m where m.sender = new.sender and m.created_at > now() - interval '1 minute') >= 30 then
+    raise exception 'Slow down a little. Try again in a minute.';
+  end if;
+  new.body := trim(new.body);
+  return new;
+end $$;
+drop trigger if exists messages_guard_insert on public.messages;
+create trigger messages_guard_insert before insert on public.messages for each row execute function public.guard_message_insert();
+
+alter table public.messages enable row level security;
+alter table public.message_reactions enable row level security;
+drop policy if exists "read your chats" on public.messages;
+create policy "read your chats" on public.messages for select to authenticated using (auth.uid() in (sender, recipient));
+drop policy if exists "message your friends" on public.messages;
+create policy "message your friends" on public.messages for insert to authenticated with check (sender = auth.uid());
+drop policy if exists "see reactions in your chats" on public.message_reactions;
+create policy "see reactions in your chats" on public.message_reactions for select to authenticated
+  using (exists (select 1 from public.messages m where m.id = message_id and auth.uid() in (m.sender, m.recipient)));
+
+-- Messages in one chat, newest last, with any shared bet's live details and the reactions.
+create or replace function public.chat_messages(other uuid, before_id bigint default null, lim integer default 60)
+returns table (id bigint, sender uuid, body text, created_at timestamptz, read_at timestamptz, bet jsonb, reactions jsonb)
+language sql stable security definer set search_path = public as $$
+  select * from (
+    select m.id, m.sender, m.body, m.created_at, m.read_at,
+           case when b.id is null then null else jsonb_build_object('id', b.id, 'text', b.text, 'sport', b.sport, 'odds', b.odds,
+             'result', b.result, 'created_at', b.created_at, 'tracker', t.name) end,
+           coalesce((select jsonb_object_agg(r.user_id, r.emoji) from public.message_reactions r where r.message_id = m.id), '{}'::jsonb)
+      from public.messages m
+      left join public.bets b on b.id = m.bet_id
+      left join public.trackers t on t.id = b.tracker_id
+     where auth.uid() is not null
+       and ((m.sender = auth.uid() and m.recipient = other) or (m.sender = other and m.recipient = auth.uid()))
+       and (before_id is null or m.id < before_id)
+     order by m.id desc
+     limit least(greatest(lim, 1), 200)
+  ) x order by x.id;
+$$;
+
+-- Your chats: the latest message with each person, how many you haven't read, and their profile.
+drop function if exists public.my_chats();
+create or replace function public.my_chats()
+returns table (id uuid, display_name text, avatar_url text, streak integer, tier_idx integer, best_streak integer,
+               streak_tracker text, banked double precision, last_id bigint, last_body text, last_has_bet boolean,
+               last_from_me boolean, last_at timestamptz, unread bigint)
+language sql stable security definer set search_path = public as $$
+  with mine as (
+    select m.*, case when m.sender = auth.uid() then m.recipient else m.sender end as other_id
+      from public.messages m where auth.uid() is not null and auth.uid() in (m.sender, m.recipient)
+  ), latest as (
+    select distinct on (other_id) * from mine order by other_id, id desc
+  )
+  select p.id, p.display_name, p.avatar_url, p.streak, p.tier_idx, p.best_streak, p.streak_tracker, p.banked,
+         l.id, l.body, l.bet_id is not null, l.sender = auth.uid(), l.created_at,
+         (select count(*) from mine u where u.other_id = l.other_id and u.recipient = auth.uid() and u.read_at is null)
+    from latest l join public.profiles p on p.id = l.other_id
+   order by l.id desc;
+$$;
+
+-- Mark everything someone sent you as read.
+create or replace function public.chat_mark_read(other uuid) returns void
+language sql security definer set search_path = public as $$
+  update public.messages set read_at = now() where recipient = auth.uid() and sender = other and read_at is null;
+$$;
+
+-- React to a message in one of your chats (the same emoji again, or null, removes it).
+create or replace function public.chat_react(msg bigint, emoji text) returns void
+language plpgsql security definer set search_path = public as $$
+declare cur text;
+begin
+  if not exists (select 1 from public.messages m where m.id = msg and auth.uid() in (m.sender, m.recipient)) then
+    raise exception 'That message isn''t in your chats.';
+  end if;
+  select r.emoji into cur from public.message_reactions r where r.message_id = msg and r.user_id = auth.uid();
+  if emoji is null or cur = emoji then
+    delete from public.message_reactions r where r.message_id = msg and r.user_id = auth.uid();
+  else
+    insert into public.message_reactions (message_id, user_id, emoji) values (msg, auth.uid(), emoji)
+    on conflict (message_id, user_id) do update set emoji = excluded.emoji, created_at = now();
+  end if;
+end $$;
+
+revoke all on function public.chat_messages(uuid, bigint, integer), public.my_chats(), public.chat_mark_read(uuid),
+                       public.chat_react(bigint, text), public.are_friends(uuid, uuid) from public, anon;
+grant execute on function public.chat_messages(uuid, bigint, integer), public.my_chats(), public.chat_mark_read(uuid),
+                          public.chat_react(bigint, text) to authenticated;
+
+-- Live updates: the app listens for new messages and reactions (only ones you're allowed to read reach you).
+do $$ begin
+  if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
+    if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'messages') then
+      alter publication supabase_realtime add table public.messages;
+    end if;
+    if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'message_reactions') then
+      alter publication supabase_realtime add table public.message_reactions;
+    end if;
+  end if;
+end $$;
