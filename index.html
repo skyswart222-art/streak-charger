@@ -709,6 +709,12 @@ html { touch-action: manipulation; -webkit-text-size-adjust: 100%; text-size-adj
    too high. Making every page at least screen height keeps it at the real bottom (--screen-h is set in JS). */
 .app { box-sizing: border-box; min-height: var(--screen-h, 0px); }
 
+/* Top bar: a clean, full-width strip in the page colour, so the background glow doesn't show
+   through as a hazy band or a strip down the right edge. A hairline appears once you scroll. */
+.topbar { background: none; isolation: isolate; }
+.topbar::before { content: ""; position: absolute; z-index: -1; top: 0; bottom: 0; left: 50%; width: 100vw; transform: translateX(-50%); background: var(--bg); border-bottom: 1px solid transparent; transition: border-color .2s; }
+body.scrolled .topbar::before { border-bottom-color: var(--stroke); }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
   .stamp, .x-mark, .glass-fx .hg, .glass-fx .rk, .tierburst { animation: fadeQuick 1.2s forwards !important; }
