@@ -1570,7 +1570,7 @@ function renderMe() {
   const hb = $('#nav [data-nav="home"]');
   if (hb) { hb.classList.add("has-dot"); hb.dataset.count = state.page === "feed" ? "" : feedNewLabel(); }
   document.body.classList.toggle("in-convo", state.page === "chat" && !!chatWith);
-  if (!localMode && Cloud.user) chatPoll();
+  if (!localMode && Cloud.user) { chatPoll(); syncTyping(); }
 }
 
 /* ---------- Signed out ---------- */
@@ -2051,6 +2051,7 @@ async function loadConvo(id, older) {
 function onChatEvent(kind, row) {
   if (!state || !Cloud.user || !row) return;
   const me = Cloud.user.id;
+  if ((kind === "message" || kind === "gmessage") && row.sender && typers.delete(row.sender)) paintTyping();
   loadChats(true);
   if (kind === "gmessage" || kind === "greaction") {
     const gid = "g:" + row.group_id;
@@ -2156,7 +2157,8 @@ function renderConvo() {
   wireComposer();
 }
 function composerHTML() {
-  return `<div class="cmp-bet" id="cmpBet" ${chatBet ? "" : "hidden"}></div>
+  return `<div class="typing" id="typing" aria-live="polite" ${typingLine() ? "" : "hidden"}>${typingLine()}</div>
+      <div class="cmp-bet" id="cmpBet" ${chatBet ? "" : "hidden"}></div>
       <div class="cmp-row" id="cmpRow"><button class="cmp-ic" id="cmpPhoto" aria-label="Send a photo">＋</button><input type="file" id="cmpFile" accept="image/*" hidden>
         <button class="cmp-ic" id="cmpShare" aria-label="Share a bet">🎟️</button>
         <textarea id="cmpText" rows="1" maxlength="1000" placeholder="Message"></textarea>
@@ -2186,7 +2188,7 @@ function wireComposer() {
   renderAttached();
   const ta = $("#cmpText");
   if (ta) {
-    ta.oninput = () => { ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight, 120) + "px"; micOrSend(); };
+    ta.oninput = () => { ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight, 120) + "px"; micOrSend(); typingPing(!!ta.value.trim()); };
     ta.onkeydown = e => { if (e.key === "Enter" && !e.shiftKey && !matchMedia("(pointer: coarse)").matches) { e.preventDefault(); sendChat(); } };
     $("#cmpSend").onclick = sendChat;
     $("#cmpShare").onclick = pickBet;
@@ -2359,7 +2361,7 @@ async function sendChat() {
   const to = chatWith, bet = chatBet;
   try {
     if (isGroup(to)) await Cloud.sendGroupMessage(gidOf(to), body, bet && bet.id); else await Cloud.sendMessage(to, body, bet && bet.id);
-    if (chatWith === to) { ta.value = ""; ta.style.height = "auto"; chatBet = null; renderAttached(); }
+    if (chatWith === to) { ta.value = ""; ta.style.height = "auto"; chatBet = null; renderAttached(); typingPing(false); }
     const box = $("#convo"); if (box) box.dataset.ready = "";
     await loadConvo(to); loadChats(true);
   } catch (x) { toast(Cloud.nice(x), "bad"); }
@@ -2713,6 +2715,44 @@ function wireSlip(sh, t, b) {
     if (!sh.isConnected) return;
     if (ok) { closeSheet(); openBet(t, b.id); } else { add.disabled = false; add.textContent = "🧾 Add bet slip photo"; }
   };
+}
+
+/* ---------- "Typing…" ----------
+   While the open chat's composer has text, a ping goes out every few seconds over a private live channel
+   for that chat (nothing is saved). A bubble shows who is typing and fades if their pings stop. */
+const typers = new Map(); // person id -> when their bubble expires
+let typingSentAt = 0, typingOn = false, typingTick = null;
+function typingTopic(id) { return isGroup(id) ? "typing:g:" + gidOf(id) : "typing:dm:" + [Cloud.user.id, id].sort().join(":"); }
+function syncTyping() {
+  const want = state && state.page === "chat" && chatWith ? typingTopic(chatWith) : null;
+  if (want === Cloud.typingTopic()) return;
+  typers.clear(); typingOn = false; typingSentAt = 0;
+  if (want) Cloud.typingJoin(want, p => {
+    if (!p || !p.id) return;
+    if (p.on) typers.set(p.id, Date.now() + 6000); else typers.delete(p.id);
+    paintTyping();
+  }); else Cloud.typingLeave();
+}
+function typingPing(on) {
+  if (!chatWith) return;
+  const now = Date.now();
+  if (on && typingOn && now - typingSentAt < 2500) return;
+  if (!on && !typingOn) return;
+  typingOn = on; typingSentAt = now; Cloud.typingSend(on);
+}
+function typingLine() {
+  const now = Date.now();
+  for (const [id, until] of typers) if (until < now) typers.delete(id);
+  if (!typers.size || !chatWith) return "";
+  const g = isGroup(chatWith) && groupOf(chatWith);
+  const names = [...typers.keys()].map(id => g ? ((g.members || []).find(m => m.id === id) || {}).name : (chatPartner(id) || {}).display_name).filter(Boolean);
+  const who = !isGroup(chatWith) ? (names[0] || "Typing") : names.length > 2 ? "Several people" : names.length ? names.join(" and ") : "Someone";
+  return `<span class="tdots"><i></i><i></i><i></i></span><span>${esc(who)} ${!isGroup(chatWith) || names.length === 1 ? "is" : "are"} typing</span>`;
+}
+function paintTyping() {
+  const el = $("#typing"); if (!el) return;
+  const html = typingLine(); el.innerHTML = html; el.hidden = !html;
+  clearInterval(typingTick); typingTick = html ? setInterval(paintTyping, 1000) : null;
 }
 
 /* =========================================================
