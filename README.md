@@ -12,13 +12,13 @@ A phone-first compound bet streak tracker. Every bet stakes the whole balance, w
 | `app.js` | The tracker: screens, maths, animations and the account screens |
 | `cloud.js` | Sign-in, loading, and saving changes to Supabase (works offline and catches up later) |
 | `config.js` | Your Supabase Project URL and publishable key |
-| `schema.sql` | Tables, security rules, the photo bucket, streak calculation, friends and the leaderboard. Paste it into the Supabase SQL Editor. Safe to re-run, and re-run it whenever it changes. |
+| `schema.sql` | Tables, security rules, the photo bucket, streak calculation, friends, the leaderboard and chat. Paste it into the Supabase SQL Editor. Safe to re-run, and re-run it whenever it changes. |
 | `supabase.js` | Supabase JavaScript client v2.117.2, bundled so nothing loads from other sites |
 | `vercel.json` | Cache and security headers |
 
 ## Navigation
 
-The bottom bar has Home, Stats, Friends, Leaders and Chat. Planner and Awards are inside Stats, the All trackers grid is the button next to the tracker tabs, and your profile and settings open from your photo in the top right. Friends lets you find people by display name, send and accept requests, and see each friend's live streak, tier, best streak and banked total. Leaders ranks you and your friends, or everyone, by live streak, best streak or banked total, with your own spot always shown. Chat is a placeholder for a later stage.
+The bottom bar has Home, Stats, Friends, Leaders and Chat. Planner and Awards are inside Stats, the All trackers grid is the button next to the tracker tabs, and your profile and settings open from your photo in the top right. Friends lets you find people by display name, send and accept requests, and see each friend's live streak, tier, best streak and banked total. Leaders ranks you and your friends, or everyone, by live streak, best streak or banked total, with your own spot always shown. Chat is private messaging between friends: share a bet as a live card that updates when it settles, react with an emoji, and see when a message was read.
 
 ## Known limits
 

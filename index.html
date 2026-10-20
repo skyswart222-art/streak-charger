@@ -516,6 +516,61 @@ body.signed-out .topbar, body.signed-out .nav, body.signed-out .fab-bar { displa
 .fname .glowname.g-flame, .lb-pod b .glowname.g-flame { animation: none; }
 .fname .glowname.g-cosmic, .lb-pod b .glowname.g-cosmic { filter: none; }
 
+/* Chat */
+.chat-row { width: 100%; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.chat-row .avatar { margin-right: 12px; }
+.chat-row .fname { flex: 1; }
+.chat-row.unread .fname small { color: var(--fg); font-weight: 600; }
+.chat-meta { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.chat-meta small { font-size: 12px; color: var(--muted); }
+.chat-meta i { font-style: normal; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 99px; background: var(--accent); color: #04131a; font-size: 12px; font-weight: 800; line-height: 20px; text-align: center; }
+body.in-convo .topbar { display: none; }
+.convo-head { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; display: flex; align-items: center; gap: 6px; margin: 0 -16px; padding: 10px 16px; background: color-mix(in srgb, var(--bg) 88%, transparent); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); border-bottom: 1px solid var(--stroke); }
+.convo-head .fwho .avatar { margin-right: 10px; }
+.convo-head .av-badge { font-size: 9px; padding: 1px 5px 1px 4px; right: -24%; top: -8%; }
+.convo-back { flex: none; width: 36px; height: 40px; border: 0; background: none; color: var(--fg); font-size: 34px; line-height: 1; cursor: pointer; }
+.convo { display: flex; flex-direction: column; gap: 4px; padding: 12px 0 calc(var(--nav-h) + 96px); min-height: 50vh; }
+.convo-empty { text-align: center; margin: 30px 10px; }
+.convo-older { margin: 0 auto 8px; }
+.convo-day { align-self: center; font-size: 12px; font-weight: 600; color: var(--muted); margin: 12px 0 6px; }
+.msg { position: relative; display: flex; flex-direction: column; max-width: 82%; }
+.msg.mine { align-self: flex-end; align-items: flex-end; }
+.msg.theirs { align-self: flex-start; align-items: flex-start; }
+.bubble { position: relative; padding: 9px 13px 7px; border-radius: 20px; background: var(--glass-2, var(--field)); border: 1px solid var(--stroke); cursor: pointer; overflow-wrap: anywhere; }
+.msg.mine .bubble { background: color-mix(in srgb, var(--accent) 22%, var(--field)); border-color: color-mix(in srgb, var(--accent) 45%, var(--stroke)); border-bottom-right-radius: 6px; }
+.msg.theirs .bubble { border-bottom-left-radius: 6px; }
+.mtext { white-space: pre-wrap; font-size: 15px; line-height: 1.35; }
+.mtime { display: block; text-align: right; font-size: 10px; color: var(--muted); margin-top: 2px; }
+.mrx { display: flex; gap: 2px; margin-top: -6px; z-index: 1; padding: 1px 5px; border-radius: 99px; background: var(--sheet); border: 1px solid var(--stroke); font-size: 13px; }
+.mrx span.me { filter: drop-shadow(0 0 4px var(--accent)); }
+.mseen { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.rx-pick { position: absolute; bottom: calc(100% + 4px); z-index: 4; display: flex; gap: 2px; padding: 4px 6px; border-radius: 99px; background: var(--sheet); border: 1px solid var(--stroke); box-shadow: 0 10px 30px -8px rgba(0,0,0,.6); animation: up .18s ease-out; }
+.msg.mine .rx-pick { right: 0; } .msg.theirs .rx-pick { left: 0; }
+.rx-pick button { border: 0; background: none; font-size: 24px; width: 38px; height: 38px; border-radius: 50%; cursor: pointer; }
+.rx-pick button.on { background: color-mix(in srgb, var(--accent) 25%, transparent); }
+.mbet { min-width: 200px; margin: 2px 0 6px; padding: 9px 11px; border-radius: 14px; background: var(--field); border: 1px solid var(--stroke); }
+.mbet.win { border-color: color-mix(in srgb, var(--win) 55%, var(--stroke)); } .mbet.loss { border-color: color-mix(in srgb, var(--loss) 55%, var(--stroke)); }
+.mbet-top { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; color: var(--muted); }
+.mbet-res { font-weight: 700; color: var(--fg); white-space: nowrap; }
+.mbet-text { font-family: var(--display); font-weight: 800; font-size: 19px; line-height: 1.15; margin-top: 3px; }
+.mbet-odds { font-size: 13px; color: var(--muted); }
+.composer { position: fixed; left: 0; right: 0; bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px)); z-index: 6; padding: 8px max(12px, env(safe-area-inset-right, 0px)) 8px max(12px, env(safe-area-inset-left, 0px)); background: linear-gradient(to top, var(--bg) 70%, transparent); }
+.composer > * { max-width: 560px; margin-left: auto; margin-right: auto; }
+.cmp-row { display: flex; align-items: flex-end; gap: 8px; }
+.cmp-row textarea { flex: 1; resize: none; min-height: 44px; max-height: 120px; padding: 11px 14px; border-radius: 22px; border: 1px solid var(--stroke); background: var(--field); color: var(--fg); font: 16px/1.3 inherit; font-family: inherit; }
+.cmp-ic, .cmp-send { flex: none; width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--stroke); background: var(--field); font-size: 20px; cursor: pointer; display: grid; place-items: center; color: var(--fg); }
+.cmp-send { background: var(--accent); border-color: transparent; }
+.cmp-send svg { width: 20px; height: 20px; fill: #04131a; }
+.cmp-send:disabled { opacity: .5; }
+.cmp-bet { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; padding: 7px 10px 7px 12px; border-radius: 14px; background: var(--sheet); border: 1px solid var(--stroke); font-size: 13px; }
+.cmp-bet span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cmp-bet button { flex: none; border: 0; background: none; color: var(--muted); font-size: 16px; cursor: pointer; }
+.pick-bets { display: flex; flex-direction: column; gap: 6px; }
+.pick-bet { display: flex; gap: 10px; align-items: center; text-align: left; padding: 10px 12px; border-radius: 14px; border: 1px solid var(--stroke); background: var(--field); color: inherit; font: inherit; cursor: pointer; }
+.pick-bet span:last-child { display: flex; flex-direction: column; min-width: 0; }
+.pick-bet b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pick-bet small { font-size: 12px; color: var(--muted); }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
   .stamp, .x-mark, .glass-fx .hg, .glass-fx .rk, .tierburst { animation: fadeQuick 1.2s forwards !important; }

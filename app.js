@@ -524,7 +524,7 @@ function render(anim) {
   setAccent(state.page === "home" || state.page === "stats" ? t.accent : ACCENTS[0]);
   $("#fabBar").hidden = state.page !== "home";
   ({ home: renderHome, trackers: renderTrackers, stats: renderStats, planner: renderPlanner, awards: renderAwards, profile: renderProfile,
-     friends: renderFriends, leaderboard: renderLeaders, chat: () => renderSoon("chat") })[state.page](anim);
+     friends: renderFriends, leaderboard: renderLeaders, chat: renderChat })[state.page](anim);
   // Stats, Planner and Awards share the Stats tab, with a switcher on top.
   if (SUBNAV.some(x => x[0] === state.page)) $("#view").insertAdjacentHTML("afterbegin", `<div class="seg subnav">${SUBNAV.map(([id, n]) => `<button data-nav="${id}" class="${state.page === id ? "on" : ""}">${n}</button>`).join("")}</div>`);
 }
@@ -1501,6 +1501,10 @@ function renderMe() {
   // A count on the Friends tab when someone has sent you a request.
   const fb = $('#nav [data-nav="friends"]'), n = incomingCount();
   if (fb) { fb.classList.add("has-dot"); fb.dataset.count = n || ""; }
+  const cb = $('#nav [data-nav="chat"]'), u = unreadCount();
+  if (cb) { cb.classList.add("has-dot"); cb.dataset.count = u > 99 ? "99+" : u || ""; }
+  document.body.classList.toggle("in-convo", state.page === "chat" && !!chatWith);
+  if (!localMode && Cloud.user) chatPoll();
 }
 
 /* ---------- Signed out ---------- */
@@ -1609,7 +1613,8 @@ function startApp() {
   evalAchievements(); save(); render();
   // A different account may have just logged in on this device, so start the friends list afresh.
   friends = null; friendsErr = ""; fQuery = ""; fResults = null; boards = {};
-  if (!localMode) loadFriends(true);
+  chats = null; chatWith = null; convos = {};
+  if (!localMode) { loadFriends(true); loadChats(true); Cloud.onChat(onChatEvent); }
 }
 function readUI() { try { return JSON.parse(localStorage.getItem(UI_KEY) || "{}"); } catch (e) { return {}; } }
 
@@ -1701,7 +1706,6 @@ function syncLabel() { return { saved: "✓ synced to your account", saving: "sa
 
 /* ---------- Coming-soon pages ---------- */
 const SOON = {
-  chat: { icon: "💬", title: "Chat", text: "Talk bets with your friends, share a slip and react to each other's wins.", items: ["Friend chats", "Share a bet", "Reactions"] },
 };
 function renderSoon(id) {
   const p = SOON[id];
@@ -1724,7 +1728,8 @@ async function loadFriends(force) {
 }
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState !== "visible" || !state) return;
-  loadFriends(); if (state.page === "leaderboard") loadBoard(true);
+  loadFriends(); loadChats(true); if (state.page === "leaderboard") loadBoard(true);
+  if (state.page === "chat" && chatWith) loadConvo(chatWith);
 });
 
 function friendLine(p) {
@@ -1827,7 +1832,7 @@ function openFriend(p) {
       <div><div class="k">Best streak</div><div class="v">${p.best_streak || 0}</div></div>
       <div><div class="k">Banked</div><div class="v">${moneyShort(p.banked || 0)}</div></div>
     </div>` : ""}
-    ${friendsNow ? `<div class="note" style="margin:0 0 14px;text-align:center">Friends since ${since}</div><button class="btn warn" id="fUnfriend">Unfriend</button>`
+    ${friendsNow ? `<div class="note" style="margin:0 0 14px;text-align:center">Friends since ${since}</div><button class="btn" id="fMessage" style="margin-bottom:10px">💬 Message ${esc(p.display_name)}</button><button class="btn warn" id="fUnfriend">Unfriend</button>`
       : f && f.incoming ? `<button class="btn" id="fAccept">Accept friend request</button>`
       : f ? `<button class="btn sec" id="fCancel">Cancel request</button>` : `<button class="btn" id="fAdd">Add friend</button>`}`);
   let armed = false;
@@ -1836,6 +1841,7 @@ function openFriend(p) {
     if (!armed) { armed = true; b("#fUnfriend").textContent = `Tap again to unfriend ${p.display_name}`; return; }
     closeSheet(); friendDo(p.id, () => Cloud.friendRemove(p.id), `You're no longer friends with ${p.display_name}.`);
   };
+  if (b("#fMessage")) b("#fMessage").onclick = () => { closeSheet(); openChat(p.id); };
   if (b("#fAccept")) b("#fAccept").onclick = () => { closeSheet(); friendDo(p.id, () => Cloud.friendRespond(p.id, true), `You and ${p.display_name} are now friends.`); };
   if (b("#fCancel")) b("#fCancel").onclick = () => { closeSheet(); friendDo(p.id, () => Cloud.friendRemove(p.id), "Request cancelled."); };
   if (b("#fAdd")) b("#fAdd").onclick = () => { closeSheet(); friendDo(p.id, () => Cloud.friendRequest(p.id), r => r === "friends" ? `You and ${p.display_name} are now friends.` : `Request sent to ${p.display_name}.`); };
@@ -1906,6 +1912,208 @@ document.addEventListener("click", e => {
   const s = e.target.closest("[data-bscope]"), m = e.target.closest("[data-bmetric]");
   if (s) { boardScope = s.dataset.bscope; renderLeaders(); }
   if (m) { boardMetric = m.dataset.bmetric; renderLeaders(); }
+});
+
+/* ---------- Chat ----------
+   One-to-one chats with friends. New messages arrive live; a quiet check every few seconds
+   covers the moments a live connection drops. */
+let chatsLoading = false, chats = null, chatsAt = 0, chatsErr = "", chatWith = null, convos = {}, chatBet = null, chatTimer = null, sending = false;
+const REACTS = ["🔥", "💪", "😂", "😬", "👏", "❤️"];
+const unreadCount = () => (chats || []).reduce((a, c) => a + Number(c.unread || 0), 0);
+async function loadChats(force) {
+  if (!Cloud.user || localMode || chatsLoading || (!force && Date.now() - chatsAt < 8000)) return;
+  chatsAt = Date.now(); chatsLoading = true;
+  try { chats = await Cloud.myChats(); chatsErr = ""; } catch (x) { chatsErr = Cloud.nice(x); }
+  chatsLoading = false;
+  if (!state || scrim) return;
+  renderMe(); if (state.page === "chat" && !chatWith) renderChat();
+}
+async function loadConvo(id, older) {
+  const c = convos[id] || (convos[id] = { msgs: null });
+  try {
+    if (older) {
+      const more = await Cloud.chatMessages(id, c.msgs[0].id);
+      c.msgs = more.concat(c.msgs); c.done = more.length < 60;
+    } else {
+      const fresh = await Cloud.chatMessages(id);
+      const grew = !c.msgs || fresh.length !== c.msgs.length || JSON.stringify(fresh) !== JSON.stringify(c.msgs.slice(-fresh.length));
+      if (!c.msgs) c.done = fresh.length < 60;
+      if (!grew) return;
+      c.msgs = c.msgs && c.msgs.length > fresh.length ? c.msgs.slice(0, c.msgs.length - fresh.length).concat(fresh) : fresh;
+    }
+    c.err = "";
+  } catch (x) { c.err = Cloud.nice(x); }
+  if (state && state.page === "chat" && chatWith === id && !scrim) {
+    if ((c.msgs || []).some(m => m.sender === id && !m.read_at)) Cloud.chatMarkRead(id).then(() => loadChats(true)).catch(() => {});
+    renderConvoBody(older);
+  }
+}
+function onChatEvent(kind, row) {
+  if (!state || !Cloud.user || !row) return;
+  const me = Cloud.user.id, other = kind === "reaction" ? null : (row.sender === me ? row.recipient : row.sender);
+  loadChats(true);
+  if (state.page === "chat" && chatWith && (kind === "reaction" || other === chatWith)) loadConvo(chatWith);
+  else if (kind === "message" && row.sender !== me && state.page !== "chat") {
+    const c = (chats || []).find(x => x.id === row.sender) || (friends || []).find(x => x.id === row.sender);
+    toast(`💬 ${c ? c.display_name : "New message"}: ${row.body ? row.body.slice(0, 60) : "shared a bet"}`);
+  }
+}
+let chatEvery = 0;
+function chatPoll() {
+  const every = state && state.page === "chat" ? 4000 : 20000;
+  if (chatTimer && every === chatEvery) return;
+  clearInterval(chatTimer); chatEvery = every;
+  chatTimer = setInterval(() => {
+    if (!state || localMode || document.visibilityState !== "visible") return;
+    if (state.page === "chat" && chatWith) loadConvo(chatWith); else loadChats(true);
+  }, every);
+}
+function openChat(id) { chatWith = id; chatBet = null; go("chat"); }
+// The Chat tab always opens the list of chats.
+document.addEventListener("click", e => { if (state && e.target.closest('#nav [data-nav="chat"]')) { chatWith = null; chatBet = null; } }, true);
+
+function renderChat() {
+  if (localMode) {
+    $("#view").innerHTML = `<div class="head" style="padding-top:18px"><div><div class="eyebrow">Chat</div><h1>Needs an account</h1></div></div>
+      <div class="glass card"><div class="cap" style="margin:0">Chat switches on once config.js has your Supabase keys and you're logged in.</div></div>`;
+    return;
+  }
+  if (chatWith) return renderConvo();
+  loadChats(Date.now() - chatsAt > 1500); loadFriends();
+  const list = chats || [], withChat = new Set(list.map(c => c.id));
+  const starters = (friends || []).filter(f => f.status === "accepted" && !withChat.has(f.id));
+  $("#view").innerHTML = `
+    <div class="head" style="padding-top:18px"><div><div class="eyebrow">${unreadCount() ? plural(unreadCount(), "unread message") : "Your chats"}</div><h1>Chat</h1></div></div>
+    ${chatsErr ? `<div class="glass card"><div class="err" style="margin:0">${esc(chatsErr)}</div></div>` : ""}
+    ${!chats && !chatsErr ? `<div class="glass card"><div class="cap" style="margin:0">Loading your chats…</div></div>` : ""}
+    ${list.length ? `<div class="glass card flist">${list.map(chatRow).join("")}</div>` : ""}
+    ${starters.length ? `<div class="section-h"><h2>Start a chat</h2></div><div class="glass card flist">${starters.map(f => friendRow(f, `<button class="btn sm sec" data-chat="${f.id}">Message</button>`)).join("")}</div>` : ""}
+    ${chats && !list.length && friends && !starters.length ? `<div class="glass card fempty"><div class="soon-ic">💬</div><p>Chats are with friends. Add a friend first, then message them here.</p><button class="btn sec" data-nav="friends">Find friends</button></div>` : ""}`;
+}
+function chatRow(c) {
+  const t = tierOf(c), preview = (c.last_from_me ? "You: " : "") + (c.last_body ? c.last_body : "🎟️ Shared a bet");
+  return `<button class="frow chat-row ${Number(c.unread) ? "unread" : ""}" data-chat="${c.id}">
+    ${personAvatar(c.display_name, c.avatar_url, c.streak, t, 46, { badge: true })}
+    <span class="fname"><b>${glowNameAs(c.display_name, t)}</b><small>${esc(preview)}</small></span>
+    <span class="chat-meta"><small>${chatTime(c.last_at, true)}</small>${Number(c.unread) ? `<i>${c.unread}</i>` : ""}</span></button>`;
+}
+function chatTime(ts, short) {
+  const d = new Date(ts), now = new Date(), same = d.toDateString() === now.toDateString();
+  const time = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  if (same) return time;
+  const y = new Date(now); y.setDate(now.getDate() - 1);
+  const day = d.toDateString() === y.toDateString() ? "Yesterday" : d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+  return short ? day : day + ", " + time;
+}
+function chatPartner(id) { return (chats || []).find(c => c.id === id) || (friends || []).find(f => f.id === id); }
+
+function renderConvo() {
+  const p = chatPartner(chatWith), c = convos[chatWith];
+  if (!c) loadConvo(chatWith);
+  const t = p ? tierOf(p) : TIERS[0], isFriend = (friends || []).some(f => f.id === chatWith && f.status === "accepted");
+  $("#view").innerHTML = `
+    <div class="convo-head">
+      <button class="convo-back" data-chatback aria-label="Back to chats">‹</button>
+      <button class="fwho" data-fopen="${chatWith}">${p ? personAvatar(p.display_name, p.avatar_url, p.streak, t, 40, { badge: true }) : ""}
+        <span class="fname"><b>${p ? glowNameAs(p.display_name, t) : "Chat"}</b><small>${p ? friendLine(p) : ""}</small></span></button>
+    </div>
+    <div class="convo" id="convo"></div>
+    <div class="composer" id="composer">
+      ${isFriend || !friends ? `<div class="cmp-bet" id="cmpBet" ${chatBet ? "" : "hidden"}></div>
+      <div class="cmp-row"><button class="cmp-ic" id="cmpShare" aria-label="Share a bet">🎟️</button>
+        <textarea id="cmpText" rows="1" maxlength="1000" placeholder="Message"></textarea>
+        <button class="cmp-send" id="cmpSend" aria-label="Send"><svg viewBox="0 0 24 24"><path d="M4 12 20 4l-6 16-3-7z"/></svg></button></div>`
+      : `<div class="cap" style="text-align:center;margin:0">You're not friends any more, so you can read this chat but not send new messages.</div>`}
+    </div>`;
+  renderConvoBody();
+  renderAttached();
+  const ta = $("#cmpText");
+  if (ta) {
+    ta.oninput = () => { ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight, 120) + "px"; };
+    ta.onkeydown = e => { if (e.key === "Enter" && !e.shiftKey && !matchMedia("(pointer: coarse)").matches) { e.preventDefault(); sendChat(); } };
+    $("#cmpSend").onclick = sendChat;
+    $("#cmpShare").onclick = pickBet;
+  }
+}
+function renderConvoBody(keepTop) {
+  const box = $("#convo"); if (!box) return;
+  const c = convos[chatWith], me = Cloud.user.id;
+  if (!c || !c.msgs) { box.innerHTML = c && c.err ? `<div class="err">${esc(c.err)}</div>` : `<div class="cap convo-empty">Loading…</div>`; return; }
+  const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80 || !box.dataset.ready;
+  const prevH = document.documentElement.scrollHeight;
+  let html = c.done ? "" : `<button class="linkbtn convo-older" data-chatolder>Show earlier messages</button>`, lastDay = "";
+  if (!c.msgs.length) html += `<div class="cap convo-empty">Say hi 👋 or tap 🎟️ to share one of your bets.</div>`;
+  const lastMine = [...c.msgs].reverse().find(m => m.sender === me);
+  for (const m of c.msgs) {
+    const day = new Date(m.created_at).toDateString();
+    if (day !== lastDay) { html += `<div class="convo-day">${chatTime(m.created_at, true) === new Date(m.created_at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) ? "Today" : chatTime(m.created_at, true)}</div>`; lastDay = day; }
+    const mine = m.sender === me, rx = Object.entries(m.reactions || {});
+    html += `<div class="msg ${mine ? "mine" : "theirs"}" data-msg="${m.id}">
+      <div class="bubble">${m.bet ? betCardHTML(m.bet) : ""}${m.body ? `<div class="mtext">${esc(m.body)}</div>` : ""}
+        <span class="mtime">${new Date(m.created_at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}</span></div>
+      ${rx.length ? `<div class="mrx">${rx.map(([u, e]) => `<span class="${u === me ? "me" : ""}">${e}</span>`).join("")}</div>` : ""}
+      ${m === lastMine && m.read_at ? `<div class="mseen">Seen</div>` : ""}</div>`;
+  }
+  box.innerHTML = html; box.dataset.ready = "1";
+  if (keepTop) scrollTo(0, document.documentElement.scrollHeight - prevH + scrollY);
+  else if (atBottom) requestAnimationFrame(() => scrollTo(0, document.documentElement.scrollHeight));
+}
+function betCardHTML(b) {
+  const res = { win: ["✅", "Won", "win"], loss: ["❌", "Lost", "loss"], pending: ["⏳", "Pending", "pend"] }[b.result] || ["🎟️", "", ""];
+  return `<div class="mbet ${res[2]}"><div class="mbet-top"><span>🎟️ ${esc(b.sport)}${b.tracker ? ` · ${esc(b.tracker)}` : ""}</span><span class="mbet-res">${res[0]} ${res[1]}</span></div>
+    <div class="mbet-text">${esc(b.text)}</div><div class="mbet-odds">@ ${odds2(b.odds)}</div></div>`;
+}
+function renderAttached() {
+  const el = $("#cmpBet"); if (!el) return;
+  el.hidden = !chatBet;
+  if (chatBet) el.innerHTML = `<span>🎟️ Sharing: <b>${esc(chatBet.text)}</b> @ ${odds2(chatBet.odds)}</span><button data-unbet aria-label="Remove">✕</button>`;
+}
+function pickBet() {
+  const all = state.trackers.flatMap(t => t.bets.map(b => ({ ...b, tracker: t.name }))).sort((a, b) => b.createdAt - a.createdAt).slice(0, 25);
+  const icon = { win: "✅", loss: "❌", pending: "⏳" };
+  const sh = openSheet(`<h3>Share a bet</h3><div class="sub">Pick one of your logged bets. Your friend sees its live result.</div>
+    ${all.length ? `<div class="pick-bets">${all.map(b => `<button class="pick-bet" data-pick="${b.id}"><span>${icon[b.result] || "🎟️"}</span><span><b>${esc(b.text)}</b><small>${esc(b.sport)} · ${esc(b.tracker)} · @ ${odds2(b.odds)} · ${when(b.createdAt)}</small></span></button>`).join("")}</div>`
+      : `<div class="cap">You haven't logged any bets yet.</div>`}`);
+  sh.querySelectorAll("[data-pick]").forEach(el => el.onclick = () => { chatBet = all.find(b => b.id === el.dataset.pick); closeSheet(); renderAttached(); $("#cmpText") && $("#cmpText").focus(); });
+}
+async function sendChat() {
+  const ta = $("#cmpText"); if (!ta || sending) return;
+  const body = ta.value.trim(); if (!body && !chatBet) return;
+  sending = true; $("#cmpSend").disabled = true;
+  const to = chatWith, bet = chatBet;
+  try {
+    await Cloud.sendMessage(to, body, bet && bet.id);
+    if (chatWith === to) { ta.value = ""; ta.style.height = "auto"; chatBet = null; renderAttached(); }
+    const box = $("#convo"); if (box) box.dataset.ready = "";
+    await loadConvo(to); loadChats(true);
+  } catch (x) { toast(Cloud.nice(x), "bad"); }
+  sending = false; if ($("#cmpSend")) $("#cmpSend").disabled = false;
+}
+function openReactions(msgEl) {
+  document.querySelectorAll(".rx-pick").forEach(x => x.remove());
+  const id = Number(msgEl.dataset.msg), m = (convos[chatWith].msgs || []).find(x => x.id === id); if (!m) return;
+  const mineNow = (m.reactions || {})[Cloud.user.id];
+  msgEl.insertAdjacentHTML("afterbegin", `<div class="rx-pick">${REACTS.map(e => `<button data-react="${e}" class="${mineNow === e ? "on" : ""}">${e}</button>`).join("")}</div>`);
+}
+document.addEventListener("click", async e => {
+  if (!state || !Cloud.user) return;
+  const t = e.target;
+  const c = t.closest("[data-chat]"); if (c) return openChat(c.dataset.chat);
+  if (t.closest("[data-chatback]")) { chatWith = null; chatBet = null; return render(); }
+  if (t.closest("[data-unbet]")) { chatBet = null; return renderAttached(); }
+  if (t.closest("[data-chatolder]")) return loadConvo(chatWith, true);
+  const r = t.closest("[data-react]");
+  if (r) {
+    const msgEl = r.closest("[data-msg]"), id = Number(msgEl.dataset.msg), m = convos[chatWith].msgs.find(x => x.id === id);
+    const emoji = r.dataset.react, prev = (m.reactions || {})[Cloud.user.id];
+    m.reactions = { ...(m.reactions || {}) }; if (prev === emoji) delete m.reactions[Cloud.user.id]; else m.reactions[Cloud.user.id] = emoji;
+    renderConvoBody();
+    try { await Cloud.chatReact(id, emoji); } catch (x) { toast(Cloud.nice(x), "bad"); }
+    return loadConvo(chatWith);
+  }
+  const b = t.closest(".msg .bubble");
+  if (b && state.page === "chat") return openReactions(b.closest("[data-msg]"));
+  if (!t.closest(".rx-pick")) document.querySelectorAll(".rx-pick").forEach(x => x.remove());
 });
 
 /* =========================================================
