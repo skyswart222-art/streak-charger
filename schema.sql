@@ -1174,3 +1174,23 @@ create policy "chat media read" on storage.objects for select to authenticated
 drop policy if exists "chat media upload own folder" on storage.objects;
 create policy "chat media upload own folder" on storage.objects for insert to authenticated
   with check (bucket_id = 'chat-media' and (storage.foldername(name))[1] = auth.uid()::text);
+
+-- =========================================================
+-- Stage 9: bet slip photos on logged bets
+-- =========================================================
+-- The screenshot used to log a bet is kept in your own folder of the private "chat-media"
+-- bucket, and the bet points at it. Only you can open it. Once attached it can't be swapped.
+alter table public.bets add column if not exists slip text not null default '' check (length(slip) <= 200);
+
+create or replace function public.guard_bet_slip() returns trigger language plpgsql as $$
+begin
+  if tg_op = 'UPDATE' and old.slip <> '' and new.slip is distinct from old.slip then
+    raise exception 'A bet slip photo can''t be changed once it''s attached.';
+  end if;
+  if new.slip <> '' and (split_part(new.slip, '/', 1) <> auth.uid()::text or new.slip !~ '^[0-9a-f-]+/slip-[0-9a-f]+\.jpg$') then
+    raise exception 'That slip photo isn''t yours.';
+  end if;
+  return new;
+end $$;
+drop trigger if exists bets_guard_slip on public.bets;
+create trigger bets_guard_slip before insert or update of slip on public.bets for each row execute function public.guard_bet_slip();

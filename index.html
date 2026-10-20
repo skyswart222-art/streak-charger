@@ -726,6 +726,15 @@ html { touch-action: manipulation; -webkit-text-size-adjust: 100%; text-size-adj
   .convo-head { padding-top: calc(10px + min(26px, env(safe-area-inset-top, 0px))); }
 }
 
+/* Bet slip photo on a logged bet */
+.slip { display: flex; align-items: center; gap: 12px; width: 100%; margin: -4px 0 16px; padding: 8px; border: 1px solid var(--stroke); border-radius: 14px; background: var(--field); color: inherit; font: inherit; text-align: left; cursor: zoom-in; }
+.slip img { width: 52px; height: 68px; flex: none; object-fit: cover; object-position: top; border-radius: 8px; background: var(--stroke); }
+.slip img:not([src]) { visibility: hidden; }
+.slip span { display: flex; flex-direction: column; gap: 2px; font-size: 14px; }
+.slip small { color: var(--muted); font-size: 12px; }
+.slip.broken img { visibility: hidden; }
+.slip-add { margin: -4px 0 16px; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
   .stamp, .x-mark, .glass-fx .hg, .glass-fx .rk, .tierburst { animation: fadeQuick 1.2s forwards !important; }

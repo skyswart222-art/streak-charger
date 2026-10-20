@@ -42,7 +42,7 @@ function rowsFor(state) {
     rows.push(["trackers", t.id, { id: t.id, name: t.name, accent: t.accent, start_balance: t.start, target: t.target, odds_mode: t.oddsMode,
       fixed_odds: t.fixedOdds, paused: !!t.paused, target_edits: t.targetEdits || [], position: i, created_at: Math.round(t.createdAt) }]);
     for (const b of t.bets) rows.push(["bets", b.id, { id: b.id, tracker_id: t.id, odds: b.odds, sport: b.sport, text: b.text, link: b.link || "",
-      result: b.result, created_at: Math.round(b.createdAt), settled_at: b.settledAt ? Math.round(b.settledAt) : null, edits: b.edits || [] }]);
+      result: b.result, created_at: Math.round(b.createdAt), settled_at: b.settledAt ? Math.round(b.settledAt) : null, edits: b.edits || [], ...(b.slip ? { slip: b.slip } : {}) }]);
     for (const a of t.actions) { const { id, type, at, ...payload } = a; rows.push(["tracker_actions", id, { id, tracker_id: t.id, type, at: Math.round(at), payload }]); }
   });
   const data = {}; for (const k of SETTINGS_KEYS) if (state[k] !== undefined) data[k] = state[k];
@@ -56,7 +56,7 @@ function stateFrom(trackers, bets, actions, settings) {
     paused: r.paused, targetEdits: r.target_edits || [], createdAt: Number(r.created_at), bets: [], actions: [] }]));
   bets.sort((a, b) => a.created_at - b.created_at || (a.id < b.id ? -1 : 1)).forEach(r => { const t = byT.get(r.tracker_id); if (t) t.bets.push({
     id: r.id, odds: r.odds, sport: r.sport, text: r.text, link: r.link || "", result: r.result, createdAt: Number(r.created_at),
-    settledAt: r.settled_at == null ? null : Number(r.settled_at), edits: r.edits || [] }); });
+    settledAt: r.settled_at == null ? null : Number(r.settled_at), edits: r.edits || [], ...(r.slip ? { slip: r.slip } : {}) }); });
   actions.sort((a, b) => a.at - b.at).forEach(r => { const t = byT.get(r.tracker_id); if (t) t.actions.push({ id: r.id, type: r.type, at: Number(r.at), ...(r.payload || {}) }); });
   return { trackers: [...byT.values()], ...((settings && settings.data) || {}) };
 }
@@ -166,6 +166,13 @@ async function uploadChatMedia(blob, ext, type) {
   must(await sb.storage.from("chat-media").upload(path, blob, { contentType: type, cacheControl: "31536000" }));
   return path;
 }
+// A bet slip screenshot goes in the same private bucket, and the bet points at it. Only you can open it.
+async function uploadSlip(blob) {
+  const rand = Array.from(crypto.getRandomValues(new Uint8Array(12)), b => b.toString(16).padStart(2, "0")).join("");
+  const path = `${user.id}/slip-${rand}.jpg`;
+  must(await sb.storage.from("chat-media").upload(path, blob, { contentType: "image/jpeg", cacheControl: "31536000" }));
+  return path;
+}
 const mediaLinks = new Map();
 async function mediaUrl(path) {
   const hit = mediaLinks.get(path); if (hit && hit.until > Date.now()) return hit.url;
@@ -246,6 +253,6 @@ addEventListener("online", () => latest && flush());
 addEventListener("pagehide", () => { if (latest) flush(); });
 
 window.Cloud = { configured, currentUser, onAuth, nameAvailable, signUp, signIn, signOut, resetPassword, setPassword,
-  getProfile, updateProfile, uploadAvatar, searchProfiles, myFriends, friendRequest, friendRespond, friendRemove, leaderboard, myChats, chatMessages, chatMarkRead, chatReact, feed, feedReact, sendMessage, uploadChatMedia, mediaUrl, myGroups, groupMessages, groupMarkRead, groupReact, groupCreate, groupAdd, groupRename, groupLeave, groupPeople, sendGroupMessage, myChallenges, challengeCreate, challengeRespond, challengeWins, onChat, offChat, load, fetchAll, prime, merge, readCache, writeCache, queue, flush, pending, nice,
+  getProfile, updateProfile, uploadAvatar, searchProfiles, myFriends, friendRequest, friendRespond, friendRemove, leaderboard, myChats, chatMessages, chatMarkRead, chatReact, feed, feedReact, sendMessage, uploadChatMedia, uploadSlip, mediaUrl, myGroups, groupMessages, groupMarkRead, groupReact, groupCreate, groupAdd, groupRename, groupLeave, groupPeople, sendGroupMessage, myChallenges, challengeCreate, challengeRespond, challengeWins, onChat, offChat, load, fetchAll, prime, merge, readCache, writeCache, queue, flush, pending, nice,
   get user() { return user; }, set onStatus(f) { onStatus = f; }, set onRejected(f) { onRejected = f; } };
 })();
