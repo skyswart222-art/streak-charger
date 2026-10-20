@@ -133,11 +133,24 @@ const myChats = () => rpc("my_chats");
 const chatMessages = (other, beforeId) => rpc("chat_messages", { other, before_id: beforeId || null, lim: 60 });
 const chatMarkRead = other => rpc("chat_mark_read", { other });
 const chatReact = (msg, emoji) => rpc("chat_react", { msg, emoji });
+const myGroups = () => rpc("my_groups");
+const groupMessages = (g, beforeId) => rpc("group_chat_messages", { g, before_id: beforeId || null, lim: 60 });
+const groupMarkRead = g => rpc("group_mark_read", { g });
+const groupReact = (msg, emoji) => rpc("group_react", { msg, emoji });
+const groupCreate = (name, members) => rpc("group_create", { name, members });
+const groupAdd = (g, target) => rpc("group_add", { g, target });
+const groupRename = (g, name) => rpc("group_rename", { g, name });
+const groupLeave = g => rpc("group_leave", { g });
+const groupPeople = g => rpc("group_people", { g });
 const feed = (beforeAt, beforeKey) => rpc("feed", { before_at: beforeAt || null, before_key: beforeKey || null, lim: 30 });
 const feedReact = (kind, ref, emoji) => rpc("feed_react", { kind, ref, emoji });
 async function sendMessage(other, body, betId) {
   if (betId) await flush(); // a shared bet has to reach the server before a message can point at it
   return must(await sb.from("messages").insert({ recipient: other, body: body || "", bet_id: betId || null }).select("id").single());
+}
+async function sendGroupMessage(g, body, betId) {
+  if (betId) await flush();
+  return must(await sb.from("group_messages").insert({ group_id: g, body: body || "", bet_id: betId || null }).select("id").single());
 }
 // Live updates for new messages and reactions. The database only sends rows this account may read.
 let chatChannel = null;
@@ -148,6 +161,8 @@ function onChat(cb) {
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, p => cb("message", p.new))
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "messages" }, p => cb("read", p.new))
       .on("postgres_changes", { event: "*", schema: "public", table: "message_reactions" }, p => cb("reaction", p.new || p.old))
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "group_messages" }, p => cb("gmessage", p.new))
+      .on("postgres_changes", { event: "*", schema: "public", table: "group_reactions" }, p => cb("greaction", p.new || p.old))
       .subscribe();
   } catch (e) { chatChannel = null; }
 }
@@ -210,6 +225,6 @@ addEventListener("online", () => latest && flush());
 addEventListener("pagehide", () => { if (latest) flush(); });
 
 window.Cloud = { configured, currentUser, onAuth, nameAvailable, signUp, signIn, signOut, resetPassword, setPassword,
-  getProfile, updateProfile, uploadAvatar, searchProfiles, myFriends, friendRequest, friendRespond, friendRemove, leaderboard, myChats, chatMessages, chatMarkRead, chatReact, feed, feedReact, sendMessage, onChat, offChat, load, fetchAll, prime, merge, readCache, writeCache, queue, flush, pending, nice,
+  getProfile, updateProfile, uploadAvatar, searchProfiles, myFriends, friendRequest, friendRespond, friendRemove, leaderboard, myChats, chatMessages, chatMarkRead, chatReact, feed, feedReact, sendMessage, myGroups, groupMessages, groupMarkRead, groupReact, groupCreate, groupAdd, groupRename, groupLeave, groupPeople, sendGroupMessage, onChat, offChat, load, fetchAll, prime, merge, readCache, writeCache, queue, flush, pending, nice,
   get user() { return user; }, set onStatus(f) { onStatus = f; }, set onRejected(f) { onRejected = f; } };
 })();

@@ -716,3 +716,247 @@ end $$;
 revoke all on function public.feed(bigint, text, integer), public.feed_react(text, text, text), public.feed_owner(text, text) from public, anon;
 revoke all on function public.feed_owner(text, text) from authenticated;
 grant execute on function public.feed(bigint, text, integer), public.feed_react(text, text, text) to authenticated;
+
+-- =====================================================================
+-- Stage 6 · Group chats
+-- Chats with up to 20 people. You start a group with your friends, and
+-- any member can add their own friends to it. Only members can read a
+-- group or send to it. Messages can't be edited or deleted. Leaving a
+-- group removes you from it; a group with nobody left is deleted.
+-- =====================================================================
+create table if not exists public.chat_groups (
+  id         bigint generated always as identity primary key,
+  name       text not null check (length(trim(name)) between 1 and 40),
+  created_by uuid references public.profiles (id) on delete set null,
+  created_at timestamptz not null default now()
+);
+create table if not exists public.group_members (
+  group_id     bigint not null references public.chat_groups (id) on delete cascade,
+  user_id      uuid not null references public.profiles (id) on delete cascade,
+  added_by     uuid references public.profiles (id) on delete set null,
+  joined_at    timestamptz not null default now(),
+  last_read_id bigint not null default 0,
+  primary key (group_id, user_id)
+);
+create index if not exists group_members_user_idx on public.group_members (user_id);
+create table if not exists public.group_messages (
+  id         bigint generated always as identity primary key,
+  group_id   bigint not null references public.chat_groups (id) on delete cascade,
+  sender     uuid references public.profiles (id) on delete set null,
+  body       text not null default '' check (length(body) <= 1000),
+  bet_id     text references public.bets (id) on delete set null,
+  kind       text not null default 'text' check (kind in ('text', 'event')),
+  created_at timestamptz not null default now(),
+  check (length(trim(body)) > 0 or bet_id is not null)
+);
+create index if not exists group_messages_group_idx on public.group_messages (group_id, id desc);
+create table if not exists public.group_reactions (
+  message_id bigint not null references public.group_messages (id) on delete cascade,
+  user_id    uuid not null references public.profiles (id) on delete cascade,
+  group_id   bigint not null references public.chat_groups (id) on delete cascade,
+  emoji      text not null check (emoji in ('🔥', '💪', '😂', '😬', '👏', '❤️')),
+  created_at timestamptz not null default now(),
+  primary key (message_id, user_id)
+);
+
+create or replace function public.is_group_member(g bigint, u uuid) returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.group_members m where m.group_id = g and m.user_id = u);
+$$;
+
+-- Notes like "Sky added Mia" appear in the chat itself.
+create or replace function public.group_note(g bigint, note text) returns void
+language sql security definer set search_path = public as $$
+  insert into public.group_messages (group_id, sender, body, kind) values (g, null, note, 'event');
+$$;
+
+-- Sending: always as yourself, only to groups you're in, only your own bets, and not too fast.
+create or replace function public.guard_group_message_insert() returns trigger
+language plpgsql set search_path = public as $$
+begin
+  new.created_at := now();
+  -- Notes written by the functions in this file run as the table owner, not as a signed-in user.
+  if current_user in ('authenticated', 'anon') then
+    new.sender := auth.uid(); new.kind := 'text';
+    if new.sender is null then raise exception 'Log in first.'; end if;
+    if not public.is_group_member(new.group_id, new.sender) then raise exception 'You''re not in that group.'; end if;
+    if new.bet_id is not null and not exists (select 1 from public.bets b where b.id = new.bet_id and b.user_id = new.sender) then
+      raise exception 'You can only share your own bets.';
+    end if;
+    if (select count(*) from public.group_messages m where m.sender = new.sender and m.created_at > now() - interval '1 minute') >= 30 then
+      raise exception 'Slow down a little. Try again in a minute.';
+    end if;
+  end if;
+  new.body := trim(new.body);
+  return new;
+end $$;
+drop trigger if exists group_messages_guard_insert on public.group_messages;
+create trigger group_messages_guard_insert before insert on public.group_messages for each row execute function public.guard_group_message_insert();
+
+alter table public.chat_groups enable row level security;
+alter table public.group_members enable row level security;
+alter table public.group_messages enable row level security;
+alter table public.group_reactions enable row level security;
+-- Members can read their groups. Everything else goes through the functions below.
+drop policy if exists "read your groups" on public.chat_groups;
+create policy "read your groups" on public.chat_groups for select to authenticated using (public.is_group_member(id, auth.uid()));
+drop policy if exists "see members of your groups" on public.group_members;
+create policy "see members of your groups" on public.group_members for select to authenticated using (public.is_group_member(group_id, auth.uid()));
+drop policy if exists "read your group messages" on public.group_messages;
+create policy "read your group messages" on public.group_messages for select to authenticated using (public.is_group_member(group_id, auth.uid()));
+drop policy if exists "send to your groups" on public.group_messages;
+create policy "send to your groups" on public.group_messages for insert to authenticated with check (sender = auth.uid() and public.is_group_member(group_id, auth.uid()));
+drop policy if exists "see reactions in your groups" on public.group_reactions;
+create policy "see reactions in your groups" on public.group_reactions for select to authenticated using (public.is_group_member(group_id, auth.uid()));
+
+-- Start a group with some of your friends (at least two, up to 19).
+create or replace function public.group_create(name text, members uuid[]) returns bigint
+language plpgsql security definer set search_path = public as $$
+declare g bigint; u uuid; me text; added text[] := '{}';
+begin
+  if auth.uid() is null then raise exception 'Log in first.'; end if;
+  members := array(select distinct x from unnest(coalesce(members, '{}')) x where x <> auth.uid());
+  if cardinality(members) < 2 then raise exception 'Pick at least two friends for a group.'; end if;
+  if cardinality(members) > 19 then raise exception 'A group can have up to 20 people.'; end if;
+  if length(trim(coalesce(name, ''))) not between 1 and 40 then raise exception 'Give the group a name of up to 40 characters.'; end if;
+  if (select count(*) from public.chat_groups c where c.created_by = auth.uid() and c.created_at > now() - interval '1 hour') >= 10 then
+    raise exception 'Slow down a little. Try again later.';
+  end if;
+  foreach u in array members loop
+    if not public.are_friends(auth.uid(), u) then raise exception 'You can only add your friends to a group.'; end if;
+  end loop;
+  insert into public.chat_groups (name, created_by) values (trim(name), auth.uid()) returning id into g;
+  insert into public.group_members (group_id, user_id, added_by) values (g, auth.uid(), auth.uid());
+  insert into public.group_members (group_id, user_id, added_by) select g, x, auth.uid() from unnest(members) x;
+  select display_name into me from public.profiles where id = auth.uid();
+  perform public.group_note(g, me || ' started the group');
+  return g;
+end $$;
+
+-- Add one of your friends to a group you're in.
+create or replace function public.group_add(g bigint, target uuid) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not public.is_group_member(g, auth.uid()) then raise exception 'You''re not in that group.'; end if;
+  if public.is_group_member(g, target) then return; end if;
+  if not public.are_friends(auth.uid(), target) then raise exception 'You can only add your friends to a group.'; end if;
+  if (select count(*) from public.group_members m where m.group_id = g) >= 20 then raise exception 'A group can have up to 20 people.'; end if;
+  insert into public.group_members (group_id, user_id, added_by, last_read_id)
+    values (g, target, auth.uid(), 0);
+  perform public.group_note(g, (select display_name from public.profiles where id = auth.uid()) || ' added ' || (select display_name from public.profiles where id = target));
+end $$;
+
+create or replace function public.group_rename(g bigint, name text) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not public.is_group_member(g, auth.uid()) then raise exception 'You''re not in that group.'; end if;
+  if length(trim(coalesce(group_rename.name, ''))) not between 1 and 40 then raise exception 'Give the group a name of up to 40 characters.'; end if;
+  if (select c.name from public.chat_groups c where c.id = g) = trim(group_rename.name) then return; end if;
+  update public.chat_groups c set name = trim(group_rename.name) where c.id = g;
+  perform public.group_note(g, (select p.display_name from public.profiles p where p.id = auth.uid()) || ' renamed the group to ' || trim(group_rename.name));
+end $$;
+
+create or replace function public.group_leave(g bigint) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not public.is_group_member(g, auth.uid()) then return; end if;
+  delete from public.group_members where group_id = g and user_id = auth.uid();
+  if not exists (select 1 from public.group_members where group_id = g) then
+    delete from public.chat_groups where id = g;
+  else
+    perform public.group_note(g, (select display_name from public.profiles where id = auth.uid()) || ' left the group');
+  end if;
+end $$;
+
+-- The people in a group you're in.
+create or replace function public.group_people(g bigint)
+returns table (id uuid, display_name text, avatar_url text, streak integer, tier_idx integer, best_streak integer,
+               streak_tracker text, banked double precision, joined_at timestamptz, is_friend boolean)
+language sql stable security definer set search_path = public as $$
+  select p.id, p.display_name, p.avatar_url, p.streak, p.tier_idx, p.best_streak, p.streak_tracker, p.banked, m.joined_at,
+         public.are_friends(auth.uid(), p.id)
+    from public.group_members m join public.profiles p on p.id = m.user_id
+   where m.group_id = g and public.is_group_member(g, auth.uid())
+   order by m.joined_at, p.display_name;
+$$;
+
+-- Messages in a group, oldest first, paged back by id.
+create or replace function public.group_chat_messages(g bigint, before_id bigint default null, lim integer default 60)
+returns table (id bigint, sender uuid, sender_name text, sender_avatar text, sender_streak integer, sender_tier integer,
+               body text, kind text, created_at timestamptz, bet jsonb, reactions jsonb)
+language sql stable security definer set search_path = public as $$
+  select * from (
+    select m.id, m.sender, p.display_name, p.avatar_url, p.streak, p.tier_idx, m.body, m.kind, m.created_at,
+           case when b.id is null then null else jsonb_build_object('id', b.id, 'text', b.text, 'sport', b.sport, 'odds', b.odds,
+             'result', b.result, 'created_at', b.created_at, 'tracker', t.name) end,
+           coalesce((select jsonb_object_agg(r.user_id, r.emoji) from public.group_reactions r where r.message_id = m.id), '{}'::jsonb)
+      from public.group_messages m
+      left join public.profiles p on p.id = m.sender
+      left join public.bets b on b.id = m.bet_id
+      left join public.trackers t on t.id = b.tracker_id
+     where m.group_id = g and public.is_group_member(g, auth.uid())
+       and (before_id is null or m.id < before_id)
+     order by m.id desc
+     limit least(greatest(lim, 1), 200)
+  ) x order by x.id;
+$$;
+
+-- Your groups: the latest message in each, how many you haven't read, and who's in it.
+create or replace function public.my_groups()
+returns table (id bigint, name text, member_count bigint, members jsonb, last_id bigint, last_body text, last_has_bet boolean,
+               last_kind text, last_sender_name text, last_from_me boolean, last_at timestamptz, unread bigint)
+language sql stable security definer set search_path = public as $$
+  select c.id, c.name,
+         (select count(*) from public.group_members x where x.group_id = c.id),
+         (select coalesce(jsonb_agg(jsonb_build_object('id', p.id, 'name', p.display_name, 'avatar_url', p.avatar_url, 'tier_idx', p.tier_idx, 'streak', p.streak) order by x.joined_at), '[]'::jsonb)
+            from public.group_members x join public.profiles p on p.id = x.user_id where x.group_id = c.id),
+         l.id, l.body, l.bet_id is not null, l.kind, lp.display_name, l.sender = auth.uid(), coalesce(l.created_at, c.created_at),
+         (select count(*) from public.group_messages u where u.group_id = c.id and u.id > me.last_read_id and u.sender is distinct from auth.uid() and u.kind = 'text')
+    from public.group_members me
+    join public.chat_groups c on c.id = me.group_id
+    left join lateral (select * from public.group_messages m where m.group_id = c.id order by m.id desc limit 1) l on true
+    left join public.profiles lp on lp.id = l.sender
+   where me.user_id = auth.uid()
+   order by coalesce(l.created_at, c.created_at) desc;
+$$;
+
+create or replace function public.group_mark_read(g bigint) returns void
+language sql security definer set search_path = public as $$
+  update public.group_members set last_read_id = coalesce((select max(id) from public.group_messages where group_id = g), 0)
+   where group_id = g and user_id = auth.uid();
+$$;
+
+-- React to a message in one of your groups (the same emoji again, or null, removes it).
+create or replace function public.group_react(msg bigint, emoji text) returns void
+language plpgsql security definer set search_path = public as $$
+declare g bigint; cur text;
+begin
+  select m.group_id into g from public.group_messages m where m.id = msg and m.kind = 'text';
+  if g is null or not public.is_group_member(g, auth.uid()) then raise exception 'That message isn''t in your groups.'; end if;
+  select r.emoji into cur from public.group_reactions r where r.message_id = msg and r.user_id = auth.uid();
+  if emoji is null or cur = emoji then
+    delete from public.group_reactions r where r.message_id = msg and r.user_id = auth.uid();
+  else
+    insert into public.group_reactions (message_id, user_id, group_id, emoji) values (msg, auth.uid(), g, emoji)
+    on conflict (message_id, user_id) do update set emoji = excluded.emoji, created_at = now();
+  end if;
+end $$;
+
+revoke all on function public.is_group_member(bigint, uuid), public.group_note(bigint, text), public.group_create(text, uuid[]),
+  public.group_add(bigint, uuid), public.group_rename(bigint, text), public.group_leave(bigint), public.group_people(bigint),
+  public.group_chat_messages(bigint, bigint, integer), public.my_groups(), public.group_mark_read(bigint), public.group_react(bigint, text) from public, anon;
+revoke all on function public.group_note(bigint, text) from authenticated;
+grant execute on function public.is_group_member(bigint, uuid), public.group_create(text, uuid[]), public.group_add(bigint, uuid),
+  public.group_rename(bigint, text), public.group_leave(bigint), public.group_people(bigint), public.group_chat_messages(bigint, bigint, integer),
+  public.my_groups(), public.group_mark_read(bigint), public.group_react(bigint, text) to authenticated;
+
+do $$ begin
+  if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
+    if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'group_messages') then
+      alter publication supabase_realtime add table public.group_messages;
+    end if;
+    if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'group_reactions') then
+      alter publication supabase_realtime add table public.group_reactions;
+    end if;
+  end if;
+end $$;
