@@ -2656,6 +2656,16 @@ document.addEventListener("click", async e => {
   chBusy.delete(id); loadChallenges();
 });
 
+
+/* ---------- Home Screen app: keep pages at least screen height ---------- */
+// iOS puts the bottom bar too high on pages shorter than the screen in the Home Screen app.
+function fitScreen() {
+  const standalone = navigator.standalone || matchMedia("(display-mode: standalone)").matches;
+  document.documentElement.style.setProperty("--screen-h", standalone && innerHeight > innerWidth ? screen.height + "px" : "0px");
+}
+fitScreen();
+addEventListener("resize", fitScreen);
+
 /* =========================================================
    Boot
    ========================================================= */
