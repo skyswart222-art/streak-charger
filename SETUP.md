@@ -58,7 +58,7 @@ You'll paste these two values into the app in step 5.
 5. Choose the app's files:
    - **On iPhone:** tap **choose your files**, then **Browse** to open the Files app. Go to the unzipped `streak-charger-app` folder, tap **Select** in the top right, tap **Select All**, then tap **Open**. (If you haven't unzipped it yet: save the zip to the Files app, then tap the zip once, and Files makes the folder for you.)
    - **On a computer:** unzip `streak-charger-app.zip`, open the folder, select everything inside it and drag it into the GitHub page.
-6. Check that all 14 files are listed: `index.html`, `app.js`, `cloud.js`, `supabase.js`, `config.js`, `schema.sql`, `vercel.json`, `manifest.webmanifest`, the four icon `.png` files, `README.md` and `SETUP.md`. Then tap **Commit changes** at the bottom.
+6. Check that all 15 files and the `ocr` folder are listed: `index.html`, `app.js`, `cloud.js`, `slipreader.js`, `supabase.js`, `config.js`, `schema.sql`, `vercel.json`, `manifest.webmanifest`, the four icon `.png` files, `README.md` and `SETUP.md`. Then tap **Commit changes** at the bottom.
 
 ## Step 5: Paste your keys into `config.js`
 
