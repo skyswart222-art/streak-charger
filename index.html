@@ -678,6 +678,32 @@ html { touch-action: manipulation; -webkit-text-size-adjust: 100%; text-size-adj
 .photo-view button { position: absolute; top: calc(env(safe-area-inset-top, 0px) + 12px); right: 12px; width: 40px; height: 40px; border-radius: 50%; border: 0; background: rgba(255,255,255,.15); color: #fff; font-size: 18px; cursor: pointer; }
 @keyframes fadein { from { opacity: 0; } }
 
+/* Hints */
+.hint-real { margin-top: 14px; }
+.hint-k { font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.hint-big { display: flex; align-items: center; gap: 14px; margin: 8px 0 12px; }
+.hint-big > b { font-size: 40px; line-height: 1; font-weight: 800; color: var(--accent); }
+.hint-big span { font-size: 14px; color: var(--muted); }
+.hint-big span b { color: var(--fg); }
+.hint-streak { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 10px; }
+.hint-streak div { background: var(--field); border: 1px solid var(--stroke); border-radius: 12px; padding: 8px 6px; text-align: center; }
+.hint-streak b { display: block; font-size: 20px; }
+.hint-streak small { color: var(--muted); font-size: 12px; }
+.hint-chips { flex-wrap: nowrap; overflow-x: auto; margin: 16px -16px 12px; padding: 0 16px 2px; scrollbar-width: none; }
+.hint-chips::-webkit-scrollbar { display: none; }
+.hint-chips .chip { flex: none; }
+.hint { margin-bottom: 12px; }
+.hint-h { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.hint-h h3 { margin: 0; font-size: 18px; flex: 1; }
+.hint-e { font-size: 24px; }
+.hint-you { font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 22%, transparent); color: var(--accent); }
+.hint ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 9px; }
+.hint li { display: grid; gap: 1px; padding-left: 14px; position: relative; }
+.hint li::before { content: ""; position: absolute; left: 0; top: .55em; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.hint li span { color: var(--muted); font-size: 14px; }
+.hint-watch { margin-top: 10px; padding: 9px 11px; border-radius: 12px; font-size: 14px; background: color-mix(in srgb, #f5a524 14%, transparent); border: 1px solid color-mix(in srgb, #f5a524 35%, transparent); }
+.hint-foot { margin: 6px 2px 24px; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
   .stamp, .x-mark, .glass-fx .hg, .glass-fx .rk, .tierburst { animation: fadeQuick 1.2s forwards !important; }

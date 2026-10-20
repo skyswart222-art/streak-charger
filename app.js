@@ -490,10 +490,10 @@ const NAV = [
   { id: "leaderboard", n: "Leaders", ic: '<path d="M8 20V11h8v9"/><path d="M3 20v-5h5M16 20v-7h5v7"/><path d="M2 20h20"/><path d="m12 3 1.2 2.4 2.6.4-1.9 1.8.5 2.6L12 9l-2.4 1.2.5-2.6-1.9-1.8 2.6-.4z"/>' },
   { id: "chat", n: "Chat", ic: '<path d="M5 5h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-8l-5 4v-4H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z"/>' },
 ];
-const PAGES = ["home", "feed", "trackers", "stats", "planner", "awards", "friends", "leaderboard", "challenges", "chat", "profile"];
+const PAGES = ["home", "feed", "trackers", "stats", "planner", "awards", "hints", "friends", "leaderboard", "challenges", "chat", "profile"];
 // Which bottom tab lights up for each page.
-const navOf = p => ({ trackers: "home", feed: "home", planner: "stats", awards: "stats", challenges: "leaderboard", profile: "" }[p] ?? p);
-const SUBNAV = [["stats", "Stats"], ["planner", "Planner"], ["awards", "Awards"]];
+const navOf = p => ({ trackers: "home", feed: "home", planner: "stats", awards: "stats", hints: "stats", challenges: "leaderboard", profile: "" }[p] ?? p);
+const SUBNAV = [["stats", "Stats"], ["planner", "Planner"], ["awards", "Awards"], ["hints", "Hints"]];
 const HOMENAV = [["home", "My tracker"], ["feed", "Feed"]];
 const LEADNAV = [["leaderboard", "Leaderboard"], ["challenges", "Challenges"]];
 let previewSkin = null;
@@ -524,7 +524,7 @@ function render(anim) {
   const t = active();
   setAccent(state.page === "home" || state.page === "stats" ? t.accent : ACCENTS[0]);
   $("#fabBar").hidden = state.page !== "home";
-  ({ home: renderHome, trackers: renderTrackers, stats: renderStats, planner: renderPlanner, awards: renderAwards, profile: renderProfile,
+  ({ home: renderHome, trackers: renderTrackers, stats: renderStats, planner: renderPlanner, awards: renderAwards, hints: renderHints, profile: renderProfile,
      friends: renderFriends, leaderboard: renderLeaders, chat: renderChat, feed: renderFeed, challenges: renderChallenges })[state.page](anim);
   // Stats, Planner and Awards share the Stats tab, with a switcher on top.
   if (SUBNAV.some(x => x[0] === state.page)) $("#view").insertAdjacentHTML("afterbegin", `<div class="seg subnav">${SUBNAV.map(([id, n]) => `<button data-nav="${id}" class="${state.page === id ? "on" : ""}">${n}</button>`).join("")}</div>`);
@@ -1012,6 +1012,72 @@ function renderAwards() {
     if (el.dataset.openSkin) { previewSkin = null; state.skin = el.dataset.skin; save(); render(); }
     else toast(`🔒 Unlocks at ${SKINS.find(k => k.id === el.dataset.skin).need} wins in a row. It's a surprise!`);
   });
+}
+
+/* ---------- Hints: where short-priced bets usually come from ---------- */
+// General patterns, not tips on any game. Each one has the trap to check before betting it.
+const HINTS = [
+  { sport: "Soccer", e: "⚽", picks: [
+      ["Over 0.5 goals", "At least one goal in the match, best in high-scoring leagues and cup ties against much weaker teams."],
+      ["Double chance on a big favourite", "Top side to win or draw, at home against a team near the bottom."],
+      ["Draw no bet, home favourite", "Your stake comes back if it's a draw."]],
+    watch: "Rotated squads in cup games and dead rubbers, and red cards. Roughly 1 game in 13 still ends 0-0." },
+  { sport: "Cricket", e: "🏏", picks: [
+      ["Big favourite head to head", "A top nation against a much lower-ranked side in a T20 or one-dayer."],
+      ["Strong home side not to lose a Test", "Win or draw, on a flat pitch with good weather."],
+      ["First innings runs over a low line", "T20 on a small, flat ground."]],
+    watch: "Rain and shortened games. Check how your bookie settles a washout or no result before you bet." },
+  { sport: "Rugby League", e: "🏉", picks: [
+      ["Top of the ladder at home head to head", "Against a side in the bottom four."],
+      ["Total points over a low line", "Two attacking sides in dry weather."]],
+    watch: "Late team changes and the State of Origin period, when clubs lose their best players. Golden point can swing a close one." },
+  { sport: "Rugby Union", e: "🏉", picks: [
+      ["Tier-one nation head to head", "Against a tier-two nation, like the big World Cup pool games."],
+      ["Total points over a low line", "Two attacking sides on a dry day."]],
+    watch: "Wet weather keeps scores low, red cards change games, and a draw loses a head to head bet." },
+  { sport: "AFL", e: "🏈", picks: [
+      ["Heavy home favourite head to head", "A top-four side at its home ground against a bottom side."],
+      ["Favourite with a few points' start", "A safety net when the head to head price is too short to bother."]],
+    watch: "Wet nights, travel to the other side of the country, and stars managed late in the season." },
+  { sport: "Tennis", e: "🎾", picks: [
+      ["Top-10 player vs a qualifier", "Early rounds of a Grand Slam, best of five sets."],
+      ["Favourite to win at least one set", "Often priced very short."]],
+    watch: "Retirements and injuries. Bookies settle a retirement differently, so check the rules. Best of three is shakier than best of five." },
+  { sport: "Basketball", e: "🏀", picks: [
+      ["Heavy home favourite head to head", "A contender at home against a team that's tanking."],
+      ["Team total over a low line", "Fast-paced sides with a full roster."]],
+    watch: "Rest days, back-to-back games and stars sitting out. Check the injury report just before tip-off." },
+];
+const HINT_HABITS = [
+  ["Check team news", "an hour before the start. One late change can turn 1.05 into a coin flip."],
+  ["Skip friendlies, preseason and dead rubbers", "Teams don't always try."],
+  ["Don't stack them into a multi", "Five legs that each win 95% of the time all win only about 77% of the time."],
+  ["Shop around", "1.07 instead of 1.05 is 40% more profit on the same bet."],
+  ["Set a limit", "and take a break if it stops being fun."]];
+let hintSport = "All";
+function renderHints() {
+  // Put the sports you bet on most first.
+  const n = {}; state.trackers.forEach(t => t.bets.forEach(b => { n[b.sport] = (n[b.sport] || 0) + 1; }));
+  const list = HINTS.map((h, i) => ({ h, i })).sort((a, b) => (n[b.h.sport] || 0) - (n[a.h.sport] || 0) || a.i - b.i).map(x => x.h);
+  const shown = hintSport === "All" ? list : list.filter(h => h.sport === hintSport);
+  const pct = k => Math.round(Math.pow(.95, k) * 100) + "%";
+  $("#view").innerHTML = `
+    <div class="head" style="padding-top:18px"><div><div class="eyebrow">Low odds, high chance. Never a sure thing.</div><h1>Hints</h1></div></div>
+    <div class="glass card hint-real">
+      <div class="hint-k">What 1.05 really means</div>
+      <div class="hint-big"><b>95%</b><span>The price says it wins about 95 times in 100. Take off the bookie's cut and it's closer to <b>92 to 93</b>.</span></div>
+      <div class="hint-streak"><div><b>${pct(10)}</b><small>10 in a row</small></div><div><b>${pct(20)}</b><small>20 in a row</small></div><div><b>${pct(50)}</b><small>50 in a row</small></div></div>
+      <div class="cap">Chances of a run of wins when every bet wins 95% of the time. One loss resets your streak, so pick each bet like it's the whole balance, because it is.</div>
+    </div>
+    <div class="chips hint-chips">${["All", ...list.map(h => h.sport)].map(s => `<button class="chip ${s === hintSport ? "on" : ""}" data-hint="${s}">${s === "All" ? "All" : HINTS.find(h => h.sport === s).e + " " + s}</button>`).join("")}</div>
+    ${shown.map(h => `<div class="glass card hint">
+      <div class="hint-h"><span class="hint-e">${h.e}</span><h3>${h.sport}</h3>${n[h.sport] ? `<span class="hint-you">You bet this</span>` : ""}</div>
+      <ul>${h.picks.map(([a, b]) => `<li><b>${a}</b><span>${b}</span></li>`).join("")}</ul>
+      <div class="hint-watch">⚠️ <b>Watch out:</b> ${h.watch}</div></div>`).join("")}
+    <div class="section-h"><h2>Smart habits</h2><span>for short odds</span></div>
+    <div class="glass card hint"><ul>${HINT_HABITS.map(([a, b]) => `<li><b>${a}</b><span>${b}</span></li>`).join("")}</ul></div>
+    <div class="cap hint-foot">These are common patterns for prices around 1.05 to 1.10, not picks for any game. Prices move, so always check the odds yourself.</div>`;
+  document.querySelectorAll("[data-hint]").forEach(el => el.onclick = () => { hintSport = el.dataset.hint; render(); });
 }
 
 /* ---------- Global clicks ---------- */
