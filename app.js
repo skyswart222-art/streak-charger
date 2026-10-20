@@ -2656,20 +2656,6 @@ document.addEventListener("click", async e => {
   chBusy.delete(id); loadChallenges();
 });
 
-/* ---------- Home Screen app gap fix ---------- */
-// On some iPhones the Home Screen app's page ends a status bar short of the bottom of the screen,
-// so the bottom bar floats with a gap under it. Measure the gap and push bottom-pinned things down by it.
-function fitScreen() {
-  const standalone = navigator.standalone || matchMedia("(display-mode: standalone)").matches;
-  const portrait = innerHeight > innerWidth;
-  const gap = standalone && portrait ? Math.round(screen.height - innerHeight) : 0;
-  document.documentElement.style.setProperty("--vgap", (gap > 0 && gap < 120 ? gap : 0) + "px");
-}
-fitScreen();
-addEventListener("resize", fitScreen);
-addEventListener("orientationchange", () => setTimeout(fitScreen, 300));
-addEventListener("pageshow", fitScreen);
-
 /* =========================================================
    Boot
    ========================================================= */
