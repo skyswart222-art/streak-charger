@@ -704,13 +704,6 @@ html { touch-action: manipulation; -webkit-text-size-adjust: 100%; text-size-adj
 .hint-watch { margin-top: 10px; padding: 9px 11px; border-radius: 12px; font-size: 14px; background: color-mix(in srgb, #f5a524 14%, transparent); border: 1px solid color-mix(in srgb, #f5a524 35%, transparent); }
 .hint-foot { margin: 6px 2px 24px; }
 
-/* Home Screen app on iPhone: some iOS versions make the page a status bar shorter than the
-   screen, which leaves a gap under anything pinned to the bottom. --vgap is that gap (set in JS). */
-.nav { bottom: calc(-1 * var(--vgap, 0px)); }
-.fab-bar, .composer { bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px) - var(--vgap, 0px)); }
-.toast { bottom: calc(var(--nav-h) + 86px + env(safe-area-inset-bottom, 0px) - var(--vgap, 0px)); }
-.scrim, .photo-view, .bgfx { bottom: calc(-1 * var(--vgap, 0px)); }
-
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
   .stamp, .x-mark, .glass-fx .hg, .glass-fx .rk, .tierburst { animation: fadeQuick 1.2s forwards !important; }
