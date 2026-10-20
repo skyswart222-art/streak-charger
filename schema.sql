@@ -505,6 +505,38 @@ create table if not exists public.messages (
 );
 create index if not exists messages_pair_idx on public.messages (least(sender, recipient), greatest(sender, recipient), id desc);
 create index if not exists messages_unread_idx on public.messages (recipient) where read_at is null;
+-- Photos and voice notes: the file lives in the private "chat-media" bucket, the message points at it.
+alter table public.messages add column if not exists media_path text, add column if not exists media_kind text, add column if not exists media_meta jsonb;
+create index if not exists messages_media_idx on public.messages (media_path) where media_path is not null;
+do $$ declare c record; begin
+  for c in select conname from pg_constraint where conrelid = 'public.messages'::regclass and contype = 'c'
+             and conname <> 'messages_has_content' and pg_get_constraintdef(oid) ilike '%bet_id IS NOT NULL%' loop
+    execute format('alter table public.messages drop constraint %I', c.conname);
+  end loop;
+end $$;
+alter table public.messages drop constraint if exists messages_has_content;
+alter table public.messages add constraint messages_has_content check (length(trim(body)) > 0 or bet_id is not null or media_path is not null);
+alter table public.messages drop constraint if exists messages_media_ok;
+alter table public.messages add constraint messages_media_ok check ((media_path is null) = (media_kind is null) and (media_kind is null or media_kind in ('photo', 'voice')));
+
+-- Checks an attachment before a message can point at it: your own upload, a sensible name,
+-- and only the size or length details the app shows.
+create or replace function public.check_chat_media(path text, kind text, meta jsonb, sender uuid) returns jsonb
+language plpgsql stable set search_path = public as $$
+begin
+  if kind not in ('photo', 'voice') or path !~ ('^' || sender::text || '/[A-Za-z0-9_-]{6,64}\.(jpg|m4a|mp4|aac|webm|ogg)$') then
+    raise exception 'That attachment can''t be sent.';
+  end if;
+  if not exists (select 1 from storage.objects o where o.bucket_id = 'chat-media' and o.name = path) then
+    raise exception 'That attachment didn''t finish uploading. Try again.';
+  end if;
+  if kind = 'photo' then
+    return jsonb_build_object('w', least(greatest(coalesce((meta->>'w')::int, 0), 0), 10000), 'h', least(greatest(coalesce((meta->>'h')::int, 0), 0), 10000));
+  end if;
+  return jsonb_build_object('dur', round(least(greatest(coalesce((meta->>'dur')::numeric, 0), 0), 300), 1));
+exception when invalid_text_representation then
+  raise exception 'That attachment can''t be sent.';
+end $$;
 
 create table if not exists public.message_reactions (
   message_id bigint not null references public.messages (id) on delete cascade,
@@ -523,6 +555,9 @@ begin
   if new.bet_id is not null and not exists (select 1 from public.bets b where b.id = new.bet_id and b.user_id = new.sender) then
     raise exception 'You can only share your own bets.';
   end if;
+  if new.media_path is not null or new.media_kind is not null then
+    new.media_meta := public.check_chat_media(new.media_path, new.media_kind, new.media_meta, new.sender);
+  else new.media_meta := null; end if;
   if (select count(*) from public.messages m where m.sender = new.sender and m.created_at > now() - interval '1 minute') >= 30 then
     raise exception 'Slow down a little. Try again in a minute.';
   end if;
@@ -542,15 +577,18 @@ drop policy if exists "see reactions in your chats" on public.message_reactions;
 create policy "see reactions in your chats" on public.message_reactions for select to authenticated
   using (exists (select 1 from public.messages m where m.id = message_id and auth.uid() in (m.sender, m.recipient)));
 
--- Messages in one chat, newest last, with any shared bet's live details and the reactions.
+-- Messages in one chat, newest last, with any shared bet's live details, the reactions and any photo or voice note.
+drop function if exists public.chat_messages(uuid, bigint, integer);
 create or replace function public.chat_messages(other uuid, before_id bigint default null, lim integer default 60)
-returns table (id bigint, sender uuid, body text, created_at timestamptz, read_at timestamptz, bet jsonb, reactions jsonb)
+returns table (id bigint, sender uuid, body text, created_at timestamptz, read_at timestamptz, bet jsonb, reactions jsonb,
+               media_path text, media_kind text, media_meta jsonb)
 language sql stable security definer set search_path = public as $$
   select * from (
     select m.id, m.sender, m.body, m.created_at, m.read_at,
            case when b.id is null then null else jsonb_build_object('id', b.id, 'text', b.text, 'sport', b.sport, 'odds', b.odds,
              'result', b.result, 'created_at', b.created_at, 'tracker', t.name) end,
-           coalesce((select jsonb_object_agg(r.user_id, r.emoji) from public.message_reactions r where r.message_id = m.id), '{}'::jsonb)
+           coalesce((select jsonb_object_agg(r.user_id, r.emoji) from public.message_reactions r where r.message_id = m.id), '{}'::jsonb),
+           m.media_path, m.media_kind, m.media_meta
       from public.messages m
       left join public.bets b on b.id = m.bet_id
       left join public.trackers t on t.id = b.tracker_id
@@ -567,7 +605,7 @@ drop function if exists public.my_chats();
 create or replace function public.my_chats()
 returns table (id uuid, display_name text, avatar_url text, streak integer, tier_idx integer, best_streak integer,
                streak_tracker text, banked double precision, last_id bigint, last_body text, last_has_bet boolean,
-               last_from_me boolean, last_at timestamptz, unread bigint)
+               last_from_me boolean, last_at timestamptz, unread bigint, last_media text)
 language sql stable security definer set search_path = public as $$
   with mine as (
     select m.*, case when m.sender = auth.uid() then m.recipient else m.sender end as other_id
@@ -577,7 +615,8 @@ language sql stable security definer set search_path = public as $$
   )
   select p.id, p.display_name, p.avatar_url, p.streak, p.tier_idx, p.best_streak, p.streak_tracker, p.banked,
          l.id, l.body, l.bet_id is not null, l.sender = auth.uid(), l.created_at,
-         (select count(*) from mine u where u.other_id = l.other_id and u.recipient = auth.uid() and u.read_at is null)
+         (select count(*) from mine u where u.other_id = l.other_id and u.recipient = auth.uid() and u.read_at is null),
+         l.media_kind
     from latest l join public.profiles p on p.id = l.other_id
    order by l.id desc;
 $$;
@@ -750,6 +789,18 @@ create table if not exists public.group_messages (
   check (length(trim(body)) > 0 or bet_id is not null)
 );
 create index if not exists group_messages_group_idx on public.group_messages (group_id, id desc);
+alter table public.group_messages add column if not exists media_path text, add column if not exists media_kind text, add column if not exists media_meta jsonb;
+create index if not exists group_messages_media_idx on public.group_messages (media_path) where media_path is not null;
+do $$ declare c record; begin
+  for c in select conname from pg_constraint where conrelid = 'public.group_messages'::regclass and contype = 'c'
+             and conname <> 'group_messages_has_content' and pg_get_constraintdef(oid) ilike '%bet_id IS NOT NULL%' loop
+    execute format('alter table public.group_messages drop constraint %I', c.conname);
+  end loop;
+end $$;
+alter table public.group_messages drop constraint if exists group_messages_has_content;
+alter table public.group_messages add constraint group_messages_has_content check (length(trim(body)) > 0 or bet_id is not null or media_path is not null);
+alter table public.group_messages drop constraint if exists group_messages_media_ok;
+alter table public.group_messages add constraint group_messages_media_ok check ((media_path is null) = (media_kind is null) and (media_kind is null or media_kind in ('photo', 'voice')));
 create table if not exists public.group_reactions (
   message_id bigint not null references public.group_messages (id) on delete cascade,
   user_id    uuid not null references public.profiles (id) on delete cascade,
@@ -783,6 +834,9 @@ begin
     if new.bet_id is not null and not exists (select 1 from public.bets b where b.id = new.bet_id and b.user_id = new.sender) then
       raise exception 'You can only share your own bets.';
     end if;
+    if new.media_path is not null or new.media_kind is not null then
+      new.media_meta := public.check_chat_media(new.media_path, new.media_kind, new.media_meta, new.sender);
+    else new.media_meta := null; end if;
     if (select count(*) from public.group_messages m where m.sender = new.sender and m.created_at > now() - interval '1 minute') >= 30 then
       raise exception 'Slow down a little. Try again in a minute.';
     end if;
@@ -881,15 +935,17 @@ language sql stable security definer set search_path = public as $$
 $$;
 
 -- Messages in a group, oldest first, paged back by id.
+drop function if exists public.group_chat_messages(bigint, bigint, integer);
 create or replace function public.group_chat_messages(g bigint, before_id bigint default null, lim integer default 60)
 returns table (id bigint, sender uuid, sender_name text, sender_avatar text, sender_streak integer, sender_tier integer,
-               body text, kind text, created_at timestamptz, bet jsonb, reactions jsonb)
+               body text, kind text, created_at timestamptz, bet jsonb, reactions jsonb, media_path text, media_kind text, media_meta jsonb)
 language sql stable security definer set search_path = public as $$
   select * from (
     select m.id, m.sender, p.display_name, p.avatar_url, p.streak, p.tier_idx, m.body, m.kind, m.created_at,
            case when b.id is null then null else jsonb_build_object('id', b.id, 'text', b.text, 'sport', b.sport, 'odds', b.odds,
              'result', b.result, 'created_at', b.created_at, 'tracker', t.name) end,
-           coalesce((select jsonb_object_agg(r.user_id, r.emoji) from public.group_reactions r where r.message_id = m.id), '{}'::jsonb)
+           coalesce((select jsonb_object_agg(r.user_id, r.emoji) from public.group_reactions r where r.message_id = m.id), '{}'::jsonb),
+           m.media_path, m.media_kind, m.media_meta
       from public.group_messages m
       left join public.profiles p on p.id = m.sender
       left join public.bets b on b.id = m.bet_id
@@ -902,16 +958,18 @@ language sql stable security definer set search_path = public as $$
 $$;
 
 -- Your groups: the latest message in each, how many you haven't read, and who's in it.
+drop function if exists public.my_groups();
 create or replace function public.my_groups()
 returns table (id bigint, name text, member_count bigint, members jsonb, last_id bigint, last_body text, last_has_bet boolean,
-               last_kind text, last_sender_name text, last_from_me boolean, last_at timestamptz, unread bigint)
+               last_kind text, last_sender_name text, last_from_me boolean, last_at timestamptz, unread bigint, last_media text)
 language sql stable security definer set search_path = public as $$
   select c.id, c.name,
          (select count(*) from public.group_members x where x.group_id = c.id),
          (select coalesce(jsonb_agg(jsonb_build_object('id', p.id, 'name', p.display_name, 'avatar_url', p.avatar_url, 'tier_idx', p.tier_idx, 'streak', p.streak) order by x.joined_at), '[]'::jsonb)
             from public.group_members x join public.profiles p on p.id = x.user_id where x.group_id = c.id),
          l.id, l.body, l.bet_id is not null, l.kind, lp.display_name, l.sender = auth.uid(), coalesce(l.created_at, c.created_at),
-         (select count(*) from public.group_messages u where u.group_id = c.id and u.id > me.last_read_id and u.sender is distinct from auth.uid() and u.kind = 'text')
+         (select count(*) from public.group_messages u where u.group_id = c.id and u.id > me.last_read_id and u.sender is distinct from auth.uid() and u.kind = 'text'),
+         l.media_kind
     from public.group_members me
     join public.chat_groups c on c.id = me.group_id
     left join lateral (select * from public.group_messages m where m.group_id = c.id order by m.id desc limit 1) l on true
@@ -1088,3 +1146,31 @@ revoke all on function public.challenge_create(text, uuid[], integer), public.ch
   public.my_challenges(), public.challenge_wins(uuid) from public, anon;
 grant execute on function public.challenge_create(text, uuid[], integer), public.challenge_respond(bigint, boolean),
   public.my_challenges(), public.challenge_wins(uuid) to authenticated;
+
+-- =========================================================
+-- Stage 8: photos and voice notes in chat
+-- =========================================================
+-- A private bucket. You upload into your own folder; a file can be opened by you and by
+-- whoever can read a message that points at it.
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('chat-media', 'chat-media', false, 8388608, array['image/jpeg', 'audio/mp4', 'audio/x-m4a', 'audio/aac', 'audio/webm', 'audio/ogg', 'video/mp4'])
+on conflict (id) do update set public = false, file_size_limit = excluded.file_size_limit, allowed_mime_types = excluded.allowed_mime_types;
+
+create or replace function public.can_see_chat_media(path text) returns boolean
+language sql stable security definer set search_path = public as $$
+  select auth.uid() is not null and (
+    (storage.foldername(path))[1] = auth.uid()::text
+    or exists (select 1 from public.messages m where m.media_path = path and auth.uid() in (m.sender, m.recipient))
+    or exists (select 1 from public.group_messages g where g.media_path = path and public.is_group_member(g.group_id, auth.uid())));
+$$;
+revoke all on function public.can_see_chat_media(text) from public, anon;
+grant execute on function public.can_see_chat_media(text) to authenticated;
+revoke all on function public.check_chat_media(text, text, jsonb, uuid) from public, anon;
+grant execute on function public.check_chat_media(text, text, jsonb, uuid) to authenticated;
+
+drop policy if exists "chat media read" on storage.objects;
+create policy "chat media read" on storage.objects for select to authenticated
+  using (bucket_id = 'chat-media' and public.can_see_chat_media(name));
+drop policy if exists "chat media upload own folder" on storage.objects;
+create policy "chat media upload own folder" on storage.objects for insert to authenticated
+  with check (bucket_id = 'chat-media' and (storage.foldername(name))[1] = auth.uid()::text);

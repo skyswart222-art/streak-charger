@@ -2032,7 +2032,7 @@ function renderChat() {
     ${chats && !list.length && friends && !starters.length ? `<div class="glass card fempty"><div class="soon-ic">💬</div><p>Chats are with friends. Add a friend first, then message them here.</p><button class="btn sec" data-nav="friends">Find friends</button></div>` : ""}`;
 }
 function chatRow(c) {
-  const t = tierOf(c), preview = (c.last_from_me ? "You: " : "") + (c.last_body ? c.last_body : "🎟️ Shared a bet");
+  const t = tierOf(c), preview = (c.last_from_me ? "You: " : "") + lastText(c);
   return `<button class="frow chat-row ${Number(c.unread) ? "unread" : ""}" data-chat="${c.id}">
     ${personAvatar(c.display_name, c.avatar_url, c.streak, t, 46, { badge: true })}
     <span class="fname"><b>${glowNameAs(c.display_name, t)}</b><small>${esc(preview)}</small></span>
@@ -2045,12 +2045,13 @@ function groupAvatar(g, size) {
 }
 function groupRow(g) {
   const who = g.last_kind === "event" ? "" : g.last_from_me ? "You: " : g.last_sender_name ? g.last_sender_name + ": " : "";
-  const preview = g.last_id ? who + (g.last_body || "🎟️ Shared a bet") : peopleText(Number(g.member_count));
+  const preview = g.last_id ? who + lastText(g) : peopleText(Number(g.member_count));
   return `<button class="frow chat-row ${Number(g.unread) ? "unread" : ""}" data-chat="g:${g.id}">
     ${groupAvatar(g, 46)}
     <span class="fname"><b>${esc(g.name)}</b><small>${esc(preview)}</small></span>
     <span class="chat-meta"><small>${chatTime(g.last_at, true)}</small>${Number(g.unread) ? `<i>${g.unread}</i>` : ""}</span></button>`;
 }
+function lastText(c) { return c.last_body || (c.last_media === "photo" ? "📷 Photo" : c.last_media === "voice" ? "🎤 Voice note" : "🎟️ Shared a bet"); }
 function chatTime(ts, short) {
   const d = new Date(ts), now = new Date(), same = d.toDateString() === now.toDateString();
   const time = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
@@ -2082,9 +2083,14 @@ function renderConvo() {
 }
 function composerHTML() {
   return `<div class="cmp-bet" id="cmpBet" ${chatBet ? "" : "hidden"}></div>
-      <div class="cmp-row"><button class="cmp-ic" id="cmpShare" aria-label="Share a bet">🎟️</button>
+      <div class="cmp-row" id="cmpRow"><button class="cmp-ic" id="cmpPhoto" aria-label="Send a photo">＋</button><input type="file" id="cmpFile" accept="image/*" hidden>
+        <button class="cmp-ic" id="cmpShare" aria-label="Share a bet">🎟️</button>
         <textarea id="cmpText" rows="1" maxlength="1000" placeholder="Message"></textarea>
-        <button class="cmp-send" id="cmpSend" aria-label="Send"><svg viewBox="0 0 24 24"><path d="M4 12 20 4l-6 16-3-7z"/></svg></button></div>`;
+        <button class="cmp-ic cmp-mic" id="cmpMic" aria-label="Record a voice note">🎤</button>
+        <button class="cmp-send" id="cmpSend" aria-label="Send"><svg viewBox="0 0 24 24"><path d="M4 12 20 4l-6 16-3-7z"/></svg></button></div>
+      <div class="cmp-rec" id="cmpRec" hidden><button class="cmp-ic" id="recCancel" aria-label="Cancel voice note">✕</button>
+        <span class="rec-dot"></span><span class="rec-time" id="recTime">0:00</span><span class="rec-hint">Recording…</span>
+        <button class="cmp-send" id="recSend" aria-label="Send voice note"><svg viewBox="0 0 24 24"><path d="M4 12 20 4l-6 16-3-7z"/></svg></button></div>`;
 }
 function renderGroupConvo() {
   const g = groupOf(chatWith), c = convos[chatWith];
@@ -2106,11 +2112,122 @@ function wireComposer() {
   renderAttached();
   const ta = $("#cmpText");
   if (ta) {
-    ta.oninput = () => { ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight, 120) + "px"; };
+    ta.oninput = () => { ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight, 120) + "px"; micOrSend(); };
     ta.onkeydown = e => { if (e.key === "Enter" && !e.shiftKey && !matchMedia("(pointer: coarse)").matches) { e.preventDefault(); sendChat(); } };
     $("#cmpSend").onclick = sendChat;
     $("#cmpShare").onclick = pickBet;
+    $("#cmpPhoto").onclick = () => $("#cmpFile").click();
+    $("#cmpFile").onchange = e => { const f = e.target.files && e.target.files[0]; e.target.value = ""; if (f) sendPhoto(f); };
+    $("#cmpMic").onclick = startVoice;
+    $("#recCancel").onclick = () => stopVoice(false);
+    $("#recSend").onclick = () => stopVoice(true);
+    micOrSend();
   }
+}
+// The send arrow shows once there's something typed or a bet attached; otherwise the mic does.
+function micOrSend() {
+  const ta = $("#cmpText"); if (!ta) return;
+  const has = !!ta.value.trim() || !!chatBet;
+  $("#cmpMic").hidden = has; $("#cmpSend").hidden = !has;
+}
+
+/* ---------- Photos and voice notes ---------- */
+// Photos are shrunk to 1600px on the long side and saved as JPEG, so they send fast and stay small.
+async function shrinkPhoto(file) {
+  const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error("That file isn't a photo we can open.")); i.src = URL.createObjectURL(file); });
+  const k = Math.min(1, 1600 / Math.max(img.naturalWidth, img.naturalHeight)), w = Math.round(img.naturalWidth * k), h = Math.round(img.naturalHeight * k);
+  const cv = document.createElement("canvas"); cv.width = w; cv.height = h;
+  cv.getContext("2d").drawImage(img, 0, 0, w, h); URL.revokeObjectURL(img.src);
+  return { blob: await new Promise(res => cv.toBlob(res, "image/jpeg", .82)), w, h };
+}
+async function sendMedia(make, label) {
+  if (sending) return;
+  sending = true; const to = chatWith, note = $("#cmpBet");
+  if (note) { note.hidden = false; note.innerHTML = `<span>${label}</span>`; }
+  try {
+    const media = await make();
+    if (isGroup(to)) await Cloud.sendGroupMessage(gidOf(to), "", null, media); else await Cloud.sendMessage(to, "", null, media);
+    const box = $("#convo"); if (box) box.dataset.ready = "";
+    await loadConvo(to); loadChats(true);
+  } catch (x) { toast(x && x.message && !x.code ? x.message : Cloud.nice(x), "bad"); }
+  sending = false; renderAttached();
+}
+function sendPhoto(file) {
+  return sendMedia(async () => {
+    const { blob, w, h } = await shrinkPhoto(file);
+    return { path: await Cloud.uploadChatMedia(blob, "jpg", "image/jpeg"), kind: "photo", meta: { w, h } };
+  }, "📷 Sending photo…");
+}
+// Voice notes: tap 🎤 to record, ✕ to bin it, or the arrow to send. Two minutes at most.
+let rec = null;
+const VOICE_MAX = 120;
+async function startVoice() {
+  if (rec || sending) return;
+  if (!navigator.mediaDevices || !window.MediaRecorder) return toast("Voice notes don't work in this browser.", "bad");
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+  catch (e) { return toast("Allow the microphone for this app to send voice notes. On iPhone: Settings, then Safari, then Microphone.", "bad"); }
+  const type = ["audio/mp4", "audio/webm;codecs=opus", "audio/webm", "audio/ogg"].find(t => MediaRecorder.isTypeSupported(t)) || "";
+  const mr = new MediaRecorder(stream, type ? { mimeType: type } : undefined), chunks = [];
+  mr.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+  rec = { mr, stream, chunks, start: Date.now(), to: chatWith, send: false };
+  mr.onstop = () => {
+    const r = rec; rec = null; stream.getTracks().forEach(t => t.stop()); clearInterval(r.tick); showRec(false);
+    const dur = (Date.now() - r.start) / 1000;
+    if (!r.send) return;
+    if (dur < 1) return toast("That was too short to send. Tap 🎤 and talk, then tap send.");
+    const mime = (mr.mimeType || type || "audio/mp4").split(";")[0], ext = /mp4|aac/.test(mime) ? "m4a" : /ogg/.test(mime) ? "ogg" : "webm";
+    const blob = new Blob(r.chunks, { type: mime });
+    if (chatWith !== r.to) return;
+    sendMedia(async () => ({ path: await Cloud.uploadChatMedia(blob, ext, mime === "audio/mp4" ? "audio/mp4" : mime), kind: "voice", meta: { dur: Math.round(dur * 10) / 10 } }), "🎤 Sending voice note…");
+  };
+  mr.start(250);
+  rec.tick = setInterval(() => {
+    const sec = Math.floor((Date.now() - rec.start) / 1000), el = $("#recTime");
+    if (el) el.textContent = clock(sec); else return stopVoice(false); // left the chat
+    if (sec >= VOICE_MAX) stopVoice(true);
+  }, 250);
+  showRec(true);
+}
+function stopVoice(send) { if (!rec) return; rec.send = send; if (rec.mr.state !== "inactive") rec.mr.stop(); }
+function showRec(on) { const a = $("#cmpRow"), b = $("#cmpRec"); if (a) a.hidden = on; if (b) b.hidden = !on; if (on && $("#recTime")) $("#recTime").textContent = "0:00"; }
+const clock = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+function mediaHTML(m) {
+  if (m.media_kind === "photo") {
+    const mt = m.media_meta || {}, ar = mt.w && mt.h ? `${mt.w} / ${mt.h}` : "4 / 3";
+    return `<button class="mphoto" data-photo="${esc(m.media_path)}" style="aspect-ratio:${ar}" aria-label="Open photo"><img data-media="${esc(m.media_path)}" alt=""></button>`;
+  }
+  if (m.media_kind === "voice") {
+    const d = Number((m.media_meta || {}).dur) || 0;
+    return `<div class="mvoice" data-voice="${esc(m.media_path)}"><button class="mv-play" aria-label="Play voice note">▶</button><span class="mv-bar"><i></i></span><span class="mv-dur" data-dur="${d}">${clock(d)}</span></div>`;
+  }
+  return "";
+}
+// Fill in photos once the signed links come back.
+function loadMedia(root) {
+  root.querySelectorAll("img[data-media]:not([src])").forEach(img => {
+    Cloud.mediaUrl(img.dataset.media).then(u => { img.src = u; }).catch(() => img.closest(".mphoto").classList.add("broken"));
+  });
+}
+function openPhoto(path) {
+  const v = document.createElement("div"); v.className = "photo-view"; v.innerHTML = `<button aria-label="Close">✕</button><img alt="">`;
+  document.body.appendChild(v); v.onclick = () => v.remove();
+  Cloud.mediaUrl(path).then(u => { v.querySelector("img").src = u; }).catch(() => { v.remove(); toast("Couldn't open that photo.", "bad"); });
+}
+// One voice note plays at a time.
+let voice = null;
+async function playVoice(el) {
+  const path = el.dataset.voice;
+  if (voice && voice.path === path) { if (voice.a.paused) voice.a.play(); else voice.a.pause(); return; }
+  if (voice) { voice.a.pause(); voice.el.classList.remove("playing"); }
+  const a = new Audio(); voice = { a, el, path };
+  const btn = el.querySelector(".mv-play"), bar = el.querySelector(".mv-bar i"), dur = el.querySelector(".mv-dur"), total = Number(dur.dataset.dur) || 0;
+  a.onplay = () => { el.classList.add("playing"); btn.textContent = "❚❚"; };
+  a.onpause = () => { el.classList.remove("playing"); btn.textContent = "▶"; };
+  a.ontimeupdate = () => { const d = isFinite(a.duration) && a.duration > 0 ? a.duration : total; bar.style.width = (d ? Math.min(100, a.currentTime / d * 100) : 0) + "%"; dur.textContent = clock(a.currentTime); };
+  a.onended = () => { bar.style.width = "0%"; dur.textContent = clock(total); if (voice && voice.a === a) voice = null; };
+  try { a.src = await Cloud.mediaUrl(path); await a.play(); }
+  catch (e) { toast("Couldn't play that voice note.", "bad"); if (voice && voice.a === a) voice = null; }
 }
 function renderConvoBody(keepTop) {
   const box = $("#convo"); if (!box) return;
@@ -2119,7 +2236,7 @@ function renderConvoBody(keepTop) {
   const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80 || !box.dataset.ready;
   const prevH = document.documentElement.scrollHeight;
   let html = c.done ? "" : `<button class="linkbtn convo-older" data-chatolder>Show earlier messages</button>`, lastDay = "";
-  if (!c.msgs.length) html += `<div class="cap convo-empty">Say hi 👋 or tap 🎟️ to share one of your bets.</div>`;
+  if (!c.msgs.length) html += `<div class="cap convo-empty">Say hi 👋, tap 🎟️ to share one of your bets, ＋ for a photo or 🎤 for a voice note.</div>`;
   const lastMine = [...c.msgs].reverse().find(m => m.sender === me), group = isGroup(chatWith);
   let prevSender = null;
   for (const m of c.msgs) {
@@ -2131,12 +2248,14 @@ function renderConvoBody(keepTop) {
     const who = group && !mine && m.sender !== prevSender ? `<div class="msender">${m.sender_name ? glowNameAs(m.sender_name, tierOf({ tier_idx: m.sender_tier })) : "Someone who left"}</div>` : "";
     prevSender = m.sender;
     html += `<div class="msg ${mine ? "mine" : "theirs"}" data-msg="${m.id}">${who}
-      <div class="bubble">${m.bet ? betCardHTML(m.bet) : ""}${m.body ? `<div class="mtext">${esc(m.body)}</div>` : ""}
+      <div class="bubble ${m.media_kind ? "has-" + m.media_kind : ""}">${m.media_kind ? mediaHTML(m) : ""}${m.bet ? betCardHTML(m.bet) : ""}${m.body ? `<div class="mtext">${esc(m.body)}</div>` : ""}
         <span class="mtime">${new Date(m.created_at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}</span></div>
       ${rx.length ? `<div class="mrx">${rx.map(([u, e]) => `<span class="${u === me ? "me" : ""}">${e}</span>`).join("")}</div>` : ""}
       ${!group && m === lastMine && m.read_at ? `<div class="mseen">Seen</div>` : ""}</div>`;
   }
-  box.innerHTML = html; box.dataset.ready = "1";
+  // Keep a voice note that's playing alive through live refreshes.
+  box.innerHTML = html; box.dataset.ready = "1"; loadMedia(box);
+  if (voice) { const el = box.querySelector(`[data-voice="${CSS.escape(voice.path)}"]`); if (el) { el.replaceWith(voice.el); } }
   if (keepTop) scrollTo(0, document.documentElement.scrollHeight - prevH + scrollY);
   else if (atBottom) requestAnimationFrame(() => scrollTo(0, document.documentElement.scrollHeight));
 }
@@ -2148,6 +2267,7 @@ function betCardHTML(b) {
 function renderAttached() {
   const el = $("#cmpBet"); if (!el) return;
   el.hidden = !chatBet;
+  micOrSend();
   if (chatBet) el.innerHTML = `<span>🎟️ Sharing: <b>${esc(chatBet.text)}</b> @ ${odds2(chatBet.odds)}</span><button data-unbet aria-label="Remove">✕</button>`;
 }
 function pickBet() {
@@ -2181,7 +2301,9 @@ document.addEventListener("click", async e => {
   if (!state || !Cloud.user) return;
   const t = e.target;
   const c = t.closest("[data-chat]"); if (c) return openChat(c.dataset.chat);
-  if (t.closest("[data-chatback]")) { chatWith = null; chatBet = null; return render(); }
+  if (t.closest("[data-chatback]")) { stopVoice(false); if (voice) { voice.a.pause(); voice = null; } chatWith = null; chatBet = null; return render(); }
+  const ph = t.closest("[data-photo]"); if (ph) return openPhoto(ph.dataset.photo);
+  const vn = t.closest("[data-voice]"); if (vn) return playVoice(vn);
   if (t.closest("[data-unbet]")) { chatBet = null; return renderAttached(); }
   if (t.closest("[data-chatolder]")) return loadConvo(chatWith, true);
   if (t.closest("[data-newgroup]")) return openNewGroup();
