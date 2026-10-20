@@ -29,6 +29,7 @@ const nice = e => {
   if (/Password should be at least/i.test(m)) return "Use a password of at least 6 characters.";
   if (/Failed to fetch|NetworkError|Load failed/i.test(m)) return "Can't reach the server. Check your connection.";
   if (/profiles_display_name_unique|duplicate key/i.test(m)) return "That display name is taken.";
+  if (/Could not find the function|schema cache|does not exist/i.test(m)) return "The database needs updating: run schema.sql again in the Supabase SQL Editor.";
   return m;
 };
 const must = ({ data, error }) => { if (error) throw error; return data; };
@@ -118,6 +119,14 @@ async function uploadAvatar(file, oldUrl) {
   return prof;
 }
 
+/* ---------- Friends (every change goes through a database function that checks it) ---------- */
+const rpc = async (fn, args) => must(await sb.rpc(fn, args));
+const searchProfiles = q => rpc("search_profiles", { q });
+const myFriends = () => rpc("my_friends");
+const friendRequest = id => rpc("friend_request", { target: id });
+const friendRespond = (id, accept) => rpc("friend_respond", { other: id, accept });
+const friendRemove = id => rpc("friend_remove", { other: id });
+
 /* ---------- Loading ---------- */
 async function fetchAll() {
   const [trackers, bets, actions, settings] = await Promise.all([
@@ -135,9 +144,10 @@ function readCache() { try { return JSON.parse(localStorage.getItem(cacheKey()) 
 function writeCache(state, dirty) { try { localStorage.setItem(cacheKey(), JSON.stringify({ state, dirty, at: Date.now() })); } catch (e) {} }
 
 /* ---------- Saving ---------- */
-let latest = null, profileStreak = null;
-function queue(state, streak) {
-  latest = state; profileStreak = streak;
+// Your profile's streak, tier and banked total are worked out by the database from these rows.
+let latest = null;
+function queue(state) {
+  latest = state;
   writeCache(state, true);
   clearTimeout(timer); timer = setTimeout(flush, 500);
 }
@@ -158,10 +168,6 @@ async function flush() {
       if (changed.tracker_actions.length) must(await sb.from("tracker_actions").upsert(changed.tracker_actions.map(x => x[1]), { onConflict: "id", ignoreDuplicates: true }));
       if (changed.user_settings.length) must(await sb.from("user_settings").upsert({ user_id: user.id, ...changed.user_settings[0][1] }, { onConflict: "user_id" }));
       for (const tb in changed) for (const [id, , j] of changed[tb]) synced.set(tb + ":" + id, j);
-      if (profileStreak && profileStreak.key !== synced.get("profile:streak")) {
-        await updateProfile({ streak: profileStreak.streak, tier_idx: profileStreak.tier });
-        synced.set("profile:streak", profileStreak.key);
-      }
       writeCache(latest, false);
       if (total) onStatus("saved");
     } catch (e) {
@@ -178,6 +184,6 @@ addEventListener("online", () => latest && flush());
 addEventListener("pagehide", () => { if (latest) flush(); });
 
 window.Cloud = { configured, currentUser, onAuth, nameAvailable, signUp, signIn, signOut, resetPassword, setPassword,
-  getProfile, updateProfile, uploadAvatar, load, fetchAll, prime, merge, readCache, writeCache, queue, flush, pending, nice,
+  getProfile, updateProfile, uploadAvatar, searchProfiles, myFriends, friendRequest, friendRespond, friendRemove, load, fetchAll, prime, merge, readCache, writeCache, queue, flush, pending, nice,
   get user() { return user; }, set onStatus(f) { onStatus = f; }, set onRejected(f) { onRejected = f; } };
 })();

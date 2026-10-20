@@ -100,7 +100,7 @@ let storageOk = true, localMode = false;
 function save() {
   if (!state) return;
   try { localStorage.setItem(UI_KEY, JSON.stringify({ page: state.page, activeId: state.activeId, skin: state.skin })); } catch (e) {}
-  if (!localMode) return Cloud.queue(state, profileStreak());
+  if (!localMode) return Cloud.queue(state);
   try { localStorage.setItem(KEY, JSON.stringify(state)); storageOk = true; }
   catch (e) { if (storageOk) toast("This browser isn't letting the app save. Changes will be lost when you close it."); storageOk = false; }
 }
@@ -524,7 +524,7 @@ function render(anim) {
   setAccent(state.page === "home" || state.page === "stats" ? t.accent : ACCENTS[0]);
   $("#fabBar").hidden = state.page !== "home";
   ({ home: renderHome, trackers: renderTrackers, stats: renderStats, planner: renderPlanner, awards: renderAwards, profile: renderProfile,
-     friends: () => renderSoon("friends"), leaderboard: () => renderSoon("leaderboard"), chat: () => renderSoon("chat") })[state.page](anim);
+     friends: renderFriends, leaderboard: () => renderSoon("leaderboard"), chat: () => renderSoon("chat") })[state.page](anim);
   // Stats, Planner and Awards share the Stats tab, with a switcher on top.
   if (SUBNAV.some(x => x[0] === state.page)) $("#view").insertAdjacentHTML("afterbegin", `<div class="seg subnav">${SUBNAV.map(([id, n]) => `<button data-nav="${id}" class="${state.page === id ? "on" : ""}">${n}</button>`).join("")}</div>`);
 }
@@ -1480,20 +1480,27 @@ function liveBest() {
   const tier = tierFor(best.streak);
   return { ...best, tier, key: best.streak + ":" + tier.idx };
 }
-function profileStreak() { const b = liveBest(); return { streak: b.streak, tier: b.tier.idx, key: b.key }; }
-
-function avatarHTML(size, { badge = false, edit = false } = {}) {
-  const b = state ? liveBest() : { streak: 0, tier: TIERS[0] }, name = me ? me.display_name : "?";
-  const img = me && me.avatar_url ? `<img src="${esc(me.avatar_url)}" alt="">` : `<span class="initial">${esc(name.slice(0, 1).toUpperCase())}</span>`;
-  return `<div class="avatar" style="--sz:${size}px;--tc:${b.tier.c2};--tc2:${b.tier.c1}">${img}
-    ${badge ? `<span class="av-badge tb ${b.tier.badge}" style="--tc:${b.tier.c2};--tc2:${b.tier.c1}">${b.tier.sym} ${b.streak}</span>` : ""}
+// A round photo (or initial) ringed in the tier's colour, with an optional "🐺 17" streak badge.
+function personAvatar(name, url, streak, tier, size, { badge = false, edit = false } = {}) {
+  const img = url ? `<img src="${esc(url)}" alt="" loading="lazy">` : `<span class="initial">${esc((name || "?").slice(0, 1).toUpperCase())}</span>`;
+  return `<div class="avatar" style="--sz:${size}px;--tc:${tier.c2};--tc2:${tier.c1}">${img}
+    ${badge ? `<span class="av-badge tb ${tier.badge}" style="--tc:${tier.c2};--tc2:${tier.c1}">${tier.sym} ${streak}</span>` : ""}
     ${edit ? `<label class="av-edit" aria-label="Change photo">📷<input type="file" accept="image/*" id="avFile" hidden></label>` : ""}</div>`;
 }
-function glowName(name) { const t = state ? liveBest().tier : TIERS[0]; return `<span class="glowname g-${t.badge}" style="--tc:${t.c2};--tc2:${t.c1}">${esc(name)}</span>`; }
+// Your own badge uses this device's data, so it updates the moment you settle a bet.
+function avatarHTML(size, opts) {
+  const b = state ? liveBest() : { streak: 0, tier: TIERS[0] };
+  return personAvatar(me ? me.display_name : "?", me && me.avatar_url, b.streak, b.tier, size, opts);
+}
+function glowNameAs(name, t) { return `<span class="glowname g-${t.badge}" style="--tc:${t.c2};--tc2:${t.c1}">${esc(name)}</span>`; }
+function glowName(name) { return glowNameAs(name, state ? liveBest().tier : TIERS[0]); }
 function renderMe() {
   const btn = $("#meBtn"); if (!btn) return;
   btn.innerHTML = avatarHTML(38) + `<i class="sync-dot ${syncState}" title="${syncState === "saved" ? "Synced" : syncState}"></i>`;
   btn.classList.toggle("on", state.page === "profile");
+  // A count on the Friends tab when someone has sent you a request.
+  const fb = $('#nav [data-nav="friends"]'), n = incomingCount();
+  if (fb) { fb.classList.add("has-dot"); fb.dataset.count = n || ""; }
 }
 
 /* ---------- Signed out ---------- */
@@ -1600,6 +1607,9 @@ async function startSignedIn() {
 function startApp() {
   signedOut(false);
   evalAchievements(); save(); render();
+  // A different account may have just logged in on this device, so start the friends list afresh.
+  friends = null; friendsErr = ""; fQuery = ""; fResults = null;
+  if (!localMode) loadFriends(true);
 }
 function readUI() { try { return JSON.parse(localStorage.getItem(UI_KEY) || "{}"); } catch (e) { return {}; } }
 
@@ -1691,7 +1701,6 @@ function syncLabel() { return { saved: "✓ synced to your account", saving: "sa
 
 /* ---------- Coming-soon pages ---------- */
 const SOON = {
-  friends: { icon: "👥", title: "Friends", text: "Add friends by display name, see their live streaks and tiers, and cheer them on.", items: ["Find people by display name", "Friend requests", "Live streak badges"] },
   leaderboard: { icon: "🏆", title: "Leaderboard", text: "See who's on the longest live streak, the highest tier and the biggest banked total.", items: ["Live streak ranking", "Tier ranking", "Friends-only view"] },
   chat: { icon: "💬", title: "Chat", text: "Talk bets with your friends, share a slip and react to each other's wins.", items: ["Friend chats", "Share a bet", "Reactions"] },
 };
@@ -1699,6 +1708,131 @@ function renderSoon(id) {
   const p = SOON[id];
   $("#view").innerHTML = `<div class="head" style="padding-top:18px"><div><div class="eyebrow">Coming soon</div><h1>${p.title}</h1></div></div>
     <div class="glass card soon"><div class="soon-ic">${p.icon}</div><p>${p.text}</p><ul>${p.items.map(x => `<li>${x}</li>`).join("")}</ul><div class="cap" style="margin:0">This part arrives in the next stage.</div></div>`;
+}
+
+/* ---------- Friends ----------
+   The list comes from the database, which also works out everyone's streak from their logged bets. */
+let friends = null, friendsAt = 0, friendsErr = "", fQuery = "", fResults = null, fTimer = null, fBusy = new Set();
+const tierOf = p => TIERS[Math.min(p.tier_idx || 0, TIERS.length - 1)] || TIERS[0];
+const incomingCount = () => (friends || []).filter(f => f.status === "pending" && f.incoming).length;
+async function loadFriends(force) {
+  if (!Cloud.user || localMode || (!force && Date.now() - friendsAt < 15000)) return;
+  friendsAt = Date.now();
+  try { friends = await Cloud.myFriends(); friendsErr = ""; }
+  catch (x) { friendsErr = Cloud.nice(x); }
+  if (!state || scrim) return;
+  renderMe(); if (state.page === "friends") renderFriends();
+}
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && state) loadFriends(); });
+
+function friendLine(p) {
+  const t = tierOf(p);
+  if (p.streak) return `${t.sym} ${plural(p.streak, "win")} in a row${p.streak_tracker ? ` on ${esc(p.streak_tracker)}` : ""}`;
+  return p.best_streak ? `No live streak · best ${p.best_streak}` : "No live streak yet";
+}
+function friendRow(p, actions) {
+  const t = tierOf(p);
+  return `<div class="frow" data-fid="${p.id}">
+    <button class="fwho" data-fopen="${p.id}">${personAvatar(p.display_name, p.avatar_url, p.streak, t, 46, { badge: true })}
+      <span class="fname"><b>${glowNameAs(p.display_name, t)}</b><small>${friendLine(p)}</small></span></button>
+    <div class="fact">${actions}</div></div>`;
+}
+function relationOf(id) { return (friends || []).find(f => f.id === id); }
+function actionFor(p) {
+  const f = relationOf(p.id), busy = fBusy.has(p.id) ? "disabled" : "";
+  if (!f) return `<button class="btn sm" data-fadd="${p.id}" ${busy}>Add</button>`;
+  if (f.status === "accepted") return `<span class="fstate">Friends</span>`;
+  if (f.incoming) return `<button class="btn sm" data-faccept="${p.id}" ${busy}>Accept</button>`;
+  return `<span class="fstate">Sent</span>`;
+}
+
+function renderFriends() {
+  if (localMode) {
+    $("#view").innerHTML = `<div class="head" style="padding-top:18px"><div><div class="eyebrow">Friends</div><h1>Needs an account</h1></div></div>
+      <div class="glass card"><div class="cap" style="margin:0">Friends switch on once config.js has your Supabase keys and you're logged in.</div></div>`;
+    return;
+  }
+  loadFriends();
+  const list = friends || [], mine = list.filter(f => f.status === "accepted").sort((a, b) => b.streak - a.streak || b.best_streak - a.best_streak || a.display_name.localeCompare(b.display_name));
+  const inc = list.filter(f => f.status === "pending" && f.incoming), out = list.filter(f => f.status === "pending" && !f.incoming);
+  const searching = fQuery.trim().length >= 2;
+  $("#view").innerHTML = `
+    <div class="head" style="padding-top:18px"><div><div class="eyebrow">${friends ? plural(mine.length, "friend") : "Friends"}</div><h1>Friends</h1></div></div>
+    <div class="field fsearch"><input id="fSearch" type="search" placeholder="Find people by display name" autocomplete="off" autocapitalize="off" spellcheck="false" value="${esc(fQuery)}"></div>
+    <div id="fResults">${searching ? resultsHTML() : ""}</div>
+    ${friendsErr ? `<div class="glass card"><div class="err" style="margin:0">${esc(friendsErr)}</div></div>` : ""}
+    ${!friends && !friendsErr ? `<div class="glass card"><div class="cap" style="margin:0">Loading your friends…</div></div>` : ""}
+    ${inc.length ? `<div class="section-h"><h2>Requests</h2><span>${inc.length === 1 ? "1 person wants" : inc.length + " people want"} to be friends</span></div>
+      <div class="glass card flist">${inc.map(p => friendRow(p, `<button class="btn sm" data-faccept="${p.id}">Accept</button><button class="btn sm sec" data-fdecline="${p.id}" aria-label="Decline">✕</button>`)).join("")}</div>` : ""}
+    ${friends ? `<div class="section-h"><h2>Your friends</h2><span>${mine.length ? "Longest live streak first" : ""}</span></div>
+      ${mine.length ? `<div class="glass card flist">${mine.map((p, i) => friendRow(p, `<span class="frank">#${i + 1}</span>`)).join("")}</div>`
+        : `<div class="glass card fempty"><div class="soon-ic">👥</div><p>No friends yet. Search for someone's display name above to send them a request.</p>
+           <div class="cap" style="margin:0">Your display name is <b>${esc(me.display_name)}</b>. Share it so friends can find you.</div></div>`}` : ""}
+    ${out.length ? `<div class="section-h"><h2>Sent</h2><span>Waiting for them to accept</span></div>
+      <div class="glass card flist">${out.map(p => friendRow(p, `<button class="btn sm sec" data-fcancel="${p.id}">Cancel</button>`)).join("")}</div>` : ""}`;
+  const inp = $("#fSearch");
+  inp.oninput = () => {
+    fQuery = inp.value; clearTimeout(fTimer);
+    if (fQuery.trim().length < 2) { fResults = null; $("#fResults").innerHTML = ""; return; }
+    $("#fResults").innerHTML = resultsHTML(true);
+    const q = fQuery.trim();
+    fTimer = setTimeout(async () => {
+      try { const r = await Cloud.searchProfiles(q); if (fQuery.trim() === q) { fResults = r; $("#fResults").innerHTML = resultsHTML(); } }
+      catch (x) { $("#fResults").innerHTML = `<div class="glass card"><div class="err" style="margin:0">${esc(Cloud.nice(x))}</div></div>`; }
+    }, 300);
+  };
+}
+function resultsHTML(pending) {
+  if (pending || !fResults) return `<div class="glass card flist"><div class="cap" style="margin:0">Searching…</div></div>`;
+  if (!fResults.length) return `<div class="glass card flist"><div class="cap" style="margin:0">Nobody called “${esc(fQuery.trim())}”. Check the spelling.</div></div>`;
+  return `<div class="glass card flist">${fResults.map(p => friendRow(p, actionFor(p))).join("")}</div>`;
+}
+
+async function friendDo(id, fn, msg) {
+  if (fBusy.has(id)) return; fBusy.add(id);
+  document.querySelectorAll(`[data-fid="${id}"] .fact button`).forEach(b => b.disabled = true);
+  try { const r = await fn(); if (msg) toast(typeof msg === "function" ? msg(r) : msg); }
+  catch (x) { toast(Cloud.nice(x), "bad"); }
+  fBusy.delete(id); await loadFriends(true);
+}
+const nameOf = id => { const p = relationOf(id) || (fResults || []).find(x => x.id === id); return p ? p.display_name : "them"; };
+document.addEventListener("click", e => {
+  if (!state || !Cloud.user) return;
+  const el = e.target.closest("[data-fadd],[data-faccept],[data-fdecline],[data-fcancel],[data-fopen]"); if (!el) return;
+  const d = el.dataset;
+  if (d.fadd) return friendDo(d.fadd, () => Cloud.friendRequest(d.fadd), r => r === "friends" ? `You and ${nameOf(d.fadd)} are now friends.` : `Request sent to ${nameOf(d.fadd)}.`);
+  if (d.faccept) return friendDo(d.faccept, () => Cloud.friendRespond(d.faccept, true), `You and ${nameOf(d.faccept)} are now friends.`);
+  if (d.fdecline) return friendDo(d.fdecline, () => Cloud.friendRespond(d.fdecline, false), "Request declined.");
+  if (d.fcancel) return friendDo(d.fcancel, () => Cloud.friendRemove(d.fcancel), "Request cancelled.");
+  if (d.fopen) { const p = relationOf(d.fopen) || (fResults || []).find(x => x.id === d.fopen); if (p) openFriend(p); }
+});
+
+// A friend's profile card: photo with streak badge, glowing name and the stats the database worked out.
+function openFriend(p) {
+  const t = tierOf(p), f = relationOf(p.id), friendsNow = f && f.status === "accepted";
+  const since = f && f.since ? new Date(f.since).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" }) : "";
+  const sh = openSheet(`<div class="profile-hero" style="padding-top:6px">
+      ${personAvatar(p.display_name, p.avatar_url, p.streak || 0, t, 112, { badge: true })}
+      <h1 style="font-size:32px">${glowNameAs(p.display_name, t)}</h1>
+      <div class="sub" style="margin:0">${tierBadge(t, undefined, false)} ${p.streak ? `${plural(p.streak, "win")} in a row${p.streak_tracker ? ` on ${esc(p.streak_tracker)}` : ""}` : "No live streak right now"}</div>
+    </div>
+    ${p.best_streak !== undefined ? `<div class="kv" style="margin-top:14px">
+      <div><div class="k">Live streak</div><div class="v">${p.streak || 0}</div></div>
+      <div><div class="k">Best streak</div><div class="v">${p.best_streak || 0}</div></div>
+      <div><div class="k">Banked</div><div class="v">${moneyShort(p.banked || 0)}</div></div>
+    </div>` : ""}
+    ${friendsNow ? `<div class="note" style="margin:0 0 14px;text-align:center">Friends since ${since}</div><button class="btn warn" id="fUnfriend">Unfriend</button>`
+      : f && f.incoming ? `<button class="btn" id="fAccept">Accept friend request</button>`
+      : f ? `<button class="btn sec" id="fCancel">Cancel request</button>` : `<button class="btn" id="fAdd">Add friend</button>`}`);
+  let armed = false;
+  const b = id => sh.querySelector(id);
+  if (b("#fUnfriend")) b("#fUnfriend").onclick = () => {
+    if (!armed) { armed = true; b("#fUnfriend").textContent = `Tap again to unfriend ${p.display_name}`; return; }
+    closeSheet(); friendDo(p.id, () => Cloud.friendRemove(p.id), `You're no longer friends with ${p.display_name}.`);
+  };
+  if (b("#fAccept")) b("#fAccept").onclick = () => { closeSheet(); friendDo(p.id, () => Cloud.friendRespond(p.id, true), `You and ${p.display_name} are now friends.`); };
+  if (b("#fCancel")) b("#fCancel").onclick = () => { closeSheet(); friendDo(p.id, () => Cloud.friendRemove(p.id), "Request cancelled."); };
+  if (b("#fAdd")) b("#fAdd").onclick = () => { closeSheet(); friendDo(p.id, () => Cloud.friendRequest(p.id), r => r === "friends" ? `You and ${p.display_name} are now friends.` : `Request sent to ${p.display_name}.`); };
 }
 
 /* =========================================================

@@ -120,6 +120,18 @@ Before you open the app to lots of people, turn it back on and set up a proper e
 
 ---
 
+## Updating the app later
+
+When a new stage adds database features, `schema.sql` changes. Each time that happens:
+
+1. Open `schema.sql` in your GitHub repository and copy all of it.
+2. In Supabase, go to **SQL Editor**, then **New query**, paste it and tap **Run**. Running it again is safe: nothing you've logged is changed or removed.
+3. The app updates itself once the new files are on GitHub.
+
+If a screen says **"The database needs updating"**, it means this step was missed.
+
+---
+
 ## Troubleshooting
 
 | What you see | What to do |
