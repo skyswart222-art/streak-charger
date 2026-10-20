@@ -960,3 +960,131 @@ do $$ begin
     end if;
   end if;
 end $$;
+
+-- =====================================================================
+-- Stage 7 · Challenges
+-- Challenge one or more friends to see who gets the longest run of wins
+-- in a set time (3 days, a week or two weeks). Only bets logged during
+-- the challenge, and settled before it ends, count. Your best run
+-- across all your trackers is your score. The highest score wins, and a
+-- tie means a shared win.
+-- =====================================================================
+-- When the server first saw each bet, so bets typed in afterwards with an earlier date can't count.
+alter table public.bets add column if not exists logged_at timestamptz not null default now();
+create or replace function public.stamp_bet_logged() returns trigger language plpgsql as $$
+begin
+  if tg_op = 'INSERT' then new.logged_at := now(); else new.logged_at := old.logged_at; end if;
+  return new;
+end $$;
+drop trigger if exists bets_stamp_logged on public.bets;
+create trigger bets_stamp_logged before insert or update on public.bets for each row execute function public.stamp_bet_logged();
+
+create table if not exists public.challenges (
+  id         bigint generated always as identity primary key,
+  title      text not null check (length(trim(title)) between 1 and 40),
+  created_by uuid references public.profiles (id) on delete set null,
+  starts_at  timestamptz not null default now(),
+  ends_at    timestamptz not null,
+  created_at timestamptz not null default now(),
+  check (ends_at > starts_at)
+);
+create table if not exists public.challenge_members (
+  challenge_id bigint not null references public.challenges (id) on delete cascade,
+  user_id      uuid not null references public.profiles (id) on delete cascade,
+  status       text not null default 'invited' check (status in ('invited', 'accepted', 'declined')),
+  responded_at timestamptz,
+  primary key (challenge_id, user_id)
+);
+create index if not exists challenge_members_user_idx on public.challenge_members (user_id);
+-- Only reachable through the functions below.
+alter table public.challenges enable row level security;
+alter table public.challenge_members enable row level security;
+
+-- Someone's best run of wins between two times: bets logged in the window and settled by its end,
+-- in the order they were placed, across all their trackers. A loss ends a run.
+create or replace function public.challenge_score(uid uuid, s timestamptz, e timestamptz) returns integer
+language plpgsql stable security definer set search_path = public as $$
+declare b record; run integer := 0; best integer := 0;
+  s_ms bigint := (extract(epoch from s) * 1000)::bigint; e_ms bigint := (extract(epoch from e) * 1000)::bigint;
+begin
+  for b in select x.result from public.bets x
+            where x.user_id = uid and x.logged_at >= s and x.logged_at <= e
+              and x.created_at >= s_ms - 300000 and x.result <> 'pending' and x.settled_at <= e_ms
+            order by x.created_at, x.id loop
+    if b.result = 'win' then run := run + 1; best := greatest(best, run); else run := 0; end if;
+  end loop;
+  return best;
+end $$;
+
+-- Challenge your friends (one to nine of them) for 3, 7 or 14 days, starting now.
+create or replace function public.challenge_create(title text, members uuid[], days integer) returns bigint
+language plpgsql security definer set search_path = public as $$
+declare c bigint; u uuid;
+begin
+  if auth.uid() is null then raise exception 'Log in first.'; end if;
+  members := array(select distinct x from unnest(coalesce(members, '{}')) x where x <> auth.uid());
+  if cardinality(members) < 1 then raise exception 'Pick at least one friend to challenge.'; end if;
+  if cardinality(members) > 9 then raise exception 'A challenge can have up to 10 people.'; end if;
+  if days not in (3, 7, 14) then raise exception 'A challenge lasts 3 days, a week or two weeks.'; end if;
+  if length(trim(coalesce(challenge_create.title, ''))) not between 1 and 40 then raise exception 'Give the challenge a name of up to 40 characters.'; end if;
+  if (select count(*) from public.challenges x where x.created_by = auth.uid() and x.created_at > now() - interval '1 day') >= 10 then
+    raise exception 'That''s a lot of challenges for one day. Try again tomorrow.';
+  end if;
+  foreach u in array members loop
+    if not public.are_friends(auth.uid(), u) then raise exception 'You can only challenge your friends.'; end if;
+  end loop;
+  insert into public.challenges (title, created_by, ends_at) values (trim(challenge_create.title), auth.uid(), now() + make_interval(days => days)) returning id into c;
+  insert into public.challenge_members (challenge_id, user_id, status, responded_at) values (c, auth.uid(), 'accepted', now());
+  insert into public.challenge_members (challenge_id, user_id) select c, x from unnest(members) x;
+  return c;
+end $$;
+
+-- Accept or decline an invite while the challenge is still running.
+create or replace function public.challenge_respond(c bigint, accept boolean) returns text
+language plpgsql security definer set search_path = public as $$
+begin
+  if not exists (select 1 from public.challenge_members m where m.challenge_id = c and m.user_id = auth.uid() and m.status = 'invited') then
+    raise exception 'That invite isn''t there any more.';
+  end if;
+  if (select ends_at from public.challenges where id = c) <= now() then raise exception 'That challenge has already finished.'; end if;
+  update public.challenge_members set status = case when accept then 'accepted' else 'declined' end, responded_at = now()
+   where challenge_id = c and user_id = auth.uid();
+  return case when accept then 'accepted' else 'declined' end;
+end $$;
+
+-- Your challenges: running ones and ones that finished in the last 30 days, with everyone's live score.
+create or replace function public.my_challenges()
+returns table (id bigint, title text, created_by uuid, starts_at timestamptz, ends_at timestamptz, finished boolean,
+               my_status text, members jsonb)
+language sql stable security definer set search_path = public as $$
+  select c.id, c.title, c.created_by, c.starts_at, c.ends_at, c.ends_at <= now(), me.status,
+         (select jsonb_agg(jsonb_build_object('id', p.id, 'name', p.display_name, 'avatar_url', p.avatar_url, 'tier_idx', p.tier_idx,
+                   'streak', p.streak, 'status', m.status,
+                   'score', case when m.status = 'accepted' then public.challenge_score(p.id, c.starts_at, c.ends_at) else 0 end)
+                 order by m.status <> 'accepted', p.display_name)
+            from public.challenge_members m join public.profiles p on p.id = m.user_id where m.challenge_id = c.id)
+    from public.challenge_members me join public.challenges c on c.id = me.challenge_id
+   where me.user_id = auth.uid() and me.status <> 'declined' and c.ends_at > now() - interval '30 days'
+   order by c.ends_at <= now(), c.ends_at;
+$$;
+
+-- How many challenges someone has won outright or shared (you can see your own and your friends').
+create or replace function public.challenge_wins(uid uuid) returns integer
+language sql stable security definer set search_path = public as $$
+  select count(*)::integer from (
+    select c.id,
+           public.challenge_score(uid, c.starts_at, c.ends_at) as mine,
+           (select max(public.challenge_score(m2.user_id, c.starts_at, c.ends_at)) from public.challenge_members m2
+             where m2.challenge_id = c.id and m2.status = 'accepted') as top,
+           (select count(*) from public.challenge_members m3 where m3.challenge_id = c.id and m3.status = 'accepted') as players
+      from public.challenge_members m join public.challenges c on c.id = m.challenge_id
+     where m.user_id = uid and m.status = 'accepted' and c.ends_at <= now()
+       and (uid = auth.uid() or public.are_friends(auth.uid(), uid))
+  ) x where x.players > 1 and x.mine > 0 and x.mine = x.top;
+$$;
+
+revoke all on function public.challenge_score(uuid, timestamptz, timestamptz) from public, anon, authenticated;
+revoke all on function public.challenge_create(text, uuid[], integer), public.challenge_respond(bigint, boolean),
+  public.my_challenges(), public.challenge_wins(uuid) from public, anon;
+grant execute on function public.challenge_create(text, uuid[], integer), public.challenge_respond(bigint, boolean),
+  public.my_challenges(), public.challenge_wins(uuid) to authenticated;
