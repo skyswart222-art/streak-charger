@@ -639,6 +639,10 @@ body.in-convo .topbar { display: none; }
 @keyframes foil { 0%, 100% { background-position: 0 0; } 50% { background-position: 100% 0; } }
 @media (prefers-reduced-motion: reduce) { .fab { animation: none !important; } }
 
+/* Full-screen from the Home Screen draws under the status bar. Start the page below it,
+   so the sticky top bar doesn't slide down over the first thing on each screen. */
+.app { padding-top: env(safe-area-inset-top, 0px); }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
   .stamp, .x-mark, .glass-fx .hg, .glass-fx .rk, .tierburst { animation: fadeQuick 1.2s forwards !important; }

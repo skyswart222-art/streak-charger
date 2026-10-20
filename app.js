@@ -1002,15 +1002,15 @@ function renderAwards() {
   const got = Object.keys(state.achievements).length;
   $("#view").innerHTML = `
     <div class="head" style="padding-top:18px"><div><div class="eyebrow">Best streak ever: ${tierFor(best).sym} ${plural(best, "win")}</div><h1>Awards</h1></div></div>
-    <div class="section-h"><h2>Themes</h2><span>Tap a locked theme to preview it</span></div>
-    <div class="skins">${SKINS.map(k => { const open = best >= k.need; return `<button class="skin ${state.skin === k.id ? "on" : ""} ${open ? "" : "locked"}" data-skin="${k.id}" data-open-skin="${open ? 1 : ""}" style="--sw:${k.sw}"><div class="sw">${open ? "" : `<b>🔒</b>`}</div><div class="nm">${k.sym ? k.sym + " " : ""}${k.name}${open ? "" : ` · ${k.need}`}</div></button>`; }).join("")}</div>
+    <div class="section-h"><h2>Themes</h2><span>Longer streaks unlock surprise themes</span></div>
+    <div class="skins">${SKINS.map(k => { const open = best >= k.need; return `<button class="skin ${state.skin === k.id ? "on" : ""} ${open ? "" : "locked"}" data-skin="${k.id}" data-open-skin="${open ? 1 : ""}" style="--sw:${open ? k.sw : "linear-gradient(135deg, #2a2d33, #16181c)"}"><div class="sw">${open ? "" : `<b>🔒</b>`}</div><div class="nm">${open ? (k.sym ? k.sym + " " : "") + k.name : `??? · ${k.need} wins`}</div></button>`; }).join("")}</div>
     <div class="section-h"><h2>Badges</h2><span>${got} of ${ACH.length}</span></div>
     <div class="ach-grid">${ACH.map(a => { const at = state.achievements[a.id]; return `<div class="glass ach ${at ? "got" : "locked"}"><div class="e">${a.e}</div><div class="n">${a.n}</div><div class="d">${a.d}</div>${at ? `<div class="d" style="color:var(--gold)">Unlocked ${day(at)}</div>` : ""}</div>`; }).join("")}</div>
     <div class="section-h"><h2>Tier ladder</h2><span>by wins in a row</span></div>
     <div class="glass card"><div class="ladder">${TIERS.map(tr => `<div class="${best >= tr.min ? "" : "no"}">${tierBadge(tr)}<span>${tr.min} wins${best >= tr.min ? " ✓" : ""}</span></div>`).join("")}</div></div>`;
-  document.querySelectorAll("[data-skin]").forEach(el => el.onclick = () => {
+  document.querySelectorAll(".skin[data-skin]").forEach(el => el.onclick = () => {
     if (el.dataset.openSkin) { previewSkin = null; state.skin = el.dataset.skin; save(); render(); }
-    else { previewSkin = el.dataset.skin; go("home"); }
+    else toast(`🔒 Unlocks at ${SKINS.find(k => k.id === el.dataset.skin).need} wins in a row. It's a surprise!`);
   });
 }
 
