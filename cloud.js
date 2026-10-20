@@ -148,13 +148,30 @@ const challengeRespond = (c, accept) => rpc("challenge_respond", { c, accept });
 const challengeWins = uid => rpc("challenge_wins", { uid });
 const feed = (beforeAt, beforeKey) => rpc("feed", { before_at: beforeAt || null, before_key: beforeKey || null, lim: 30 });
 const feedReact = (kind, ref, emoji) => rpc("feed_react", { kind, ref, emoji });
-async function sendMessage(other, body, betId) {
+// media, when given, is { path, kind: "photo" | "voice", meta } from uploadChatMedia.
+const mediaCols = m => m ? { media_path: m.path, media_kind: m.kind, media_meta: m.meta || {} } : {};
+async function sendMessage(other, body, betId, media) {
   if (betId) await flush(); // a shared bet has to reach the server before a message can point at it
-  return must(await sb.from("messages").insert({ recipient: other, body: body || "", bet_id: betId || null }).select("id").single());
+  return must(await sb.from("messages").insert({ recipient: other, body: body || "", bet_id: betId || null, ...mediaCols(media) }).select("id").single());
 }
-async function sendGroupMessage(g, body, betId) {
+async function sendGroupMessage(g, body, betId, media) {
   if (betId) await flush();
-  return must(await sb.from("group_messages").insert({ group_id: g, body: body || "", bet_id: betId || null }).select("id").single());
+  return must(await sb.from("group_messages").insert({ group_id: g, body: body || "", bet_id: betId || null, ...mediaCols(media) }).select("id").single());
+}
+// Photos and voice notes go into your own folder of the private "chat-media" bucket, then a
+// message points at the file. Opening one takes a signed link that works for an hour.
+async function uploadChatMedia(blob, ext, type) {
+  const rand = Array.from(crypto.getRandomValues(new Uint8Array(12)), b => b.toString(16).padStart(2, "0")).join("");
+  const path = `${user.id}/${rand}.${ext}`;
+  must(await sb.storage.from("chat-media").upload(path, blob, { contentType: type, cacheControl: "31536000" }));
+  return path;
+}
+const mediaLinks = new Map();
+async function mediaUrl(path) {
+  const hit = mediaLinks.get(path); if (hit && hit.until > Date.now()) return hit.url;
+  const url = must(await sb.storage.from("chat-media").createSignedUrl(path, 3600)).signedUrl;
+  mediaLinks.set(path, { url, until: Date.now() + 50 * 60000 });
+  return url;
 }
 // Live updates for new messages and reactions. The database only sends rows this account may read.
 let chatChannel = null;
@@ -229,6 +246,6 @@ addEventListener("online", () => latest && flush());
 addEventListener("pagehide", () => { if (latest) flush(); });
 
 window.Cloud = { configured, currentUser, onAuth, nameAvailable, signUp, signIn, signOut, resetPassword, setPassword,
-  getProfile, updateProfile, uploadAvatar, searchProfiles, myFriends, friendRequest, friendRespond, friendRemove, leaderboard, myChats, chatMessages, chatMarkRead, chatReact, feed, feedReact, sendMessage, myGroups, groupMessages, groupMarkRead, groupReact, groupCreate, groupAdd, groupRename, groupLeave, groupPeople, sendGroupMessage, myChallenges, challengeCreate, challengeRespond, challengeWins, onChat, offChat, load, fetchAll, prime, merge, readCache, writeCache, queue, flush, pending, nice,
+  getProfile, updateProfile, uploadAvatar, searchProfiles, myFriends, friendRequest, friendRespond, friendRemove, leaderboard, myChats, chatMessages, chatMarkRead, chatReact, feed, feedReact, sendMessage, uploadChatMedia, mediaUrl, myGroups, groupMessages, groupMarkRead, groupReact, groupCreate, groupAdd, groupRename, groupLeave, groupPeople, sendGroupMessage, myChallenges, challengeCreate, challengeRespond, challengeWins, onChat, offChat, load, fetchAll, prime, merge, readCache, writeCache, queue, flush, pending, nice,
   get user() { return user; }, set onStatus(f) { onStatus = f; }, set onRejected(f) { onRejected = f; } };
 })();
