@@ -602,7 +602,7 @@ function historyHTML(t, s) {
         <div class="ic">${icon}</div>
         <div class="main"><div class="t">${esc(b.text || b.sport)}</div>
           <div class="m"><span>${esc(b.sport)}</span><span>@ ${odds2(b.odds)}</span>${b.result === "pending" && rk ? `<span class="riskchip" style="--rc:${rk.c}">${rk.sym} ${rk.name}</span>` : ""}<span>· ${when(b.createdAt)}</span>
-          ${b.edits.length ? `<span class="edited">edited</span>` : ""}${locked ? `<span title="Details locked">🔒</span>` : ""}${b.link ? `<span>🔗</span>` : ""}</div></div>
+          ${b.edits.length ? `<span class="edited">edited</span>` : ""}${locked ? `<span title="Details locked">🔒</span>` : ""}${b.link ? `<span>🔗</span>` : ""}${b.slip ? `<span title="Bet slip attached">🧾</span>` : ""}</div></div>
         <div class="r">${right}</div></button>`;
   }).join("");
 }
@@ -1285,6 +1285,7 @@ function openNewBet(t) {
     const before = compute(t);
     const b = { id: uid(), odds: Math.round(o * 1000) / 1000, sport, text, link: cleanLink(sh.querySelector("#nLink").value), result: "pending", createdAt: Date.now(), settledAt: null, edits: [] };
     t.bets.push(b);
+    if (sh._slip) attachSlip(b, sh._slip);
     pushRecent(sport);
     const fresh = evalAchievements(); save(); closeSheet();
     render({ type: "pending", from: before.frac, risk: riskFor(b.odds) });
@@ -1307,6 +1308,7 @@ function setupScan(sh, picker, balance) {
       const r = await SlipReader.read(f, k => { if (sh.isConnected) msg.textContent = stage[k]; });
       if (!sh.isConnected) return;
       if (!r || !r.found || !(r.odds > 1)) { msg.textContent = "Couldn't find the odds on that image. Try a screenshot of just the slip, or type it in."; return; }
+      sh._slip = f;
       sh.querySelector("#nOdds").value = r.odds;
       sh.querySelector("#nOdds").dispatchEvent(new Event("input"));
       if (r.sport && SPORT_NAMES.has(r.sport)) picker.set(r.sport);
@@ -1343,6 +1345,7 @@ function openBet(t, id) {
       <div><div class="k">${b.result === "win" ? "Paid" : b.result === "loss" ? "Lost" : "Returns"}</div><div class="v">${b.result === "loss" ? moneyShort(r.stake) : moneyShort(r.potential)}</div></div>
     </div>
     ${b.link ? `<p style="margin:-4px 0 16px;font-size:14px">🔗 <a class="link" href="${esc(b.link)}" target="_blank" rel="noopener">${esc(b.link)}</a></p>` : ""}
+    ${slipHTML(b)}
     <div class="field"><label for="eOdds">Odds · editable any time</label><input id="eOdds" inputmode="decimal" value="${b.odds}"></div>
     <div class="field"><label for="eText">Bet</label><input id="eText" maxlength="60" value="${esc(b.text)}" ${detailsOpen ? "" : "disabled"}></div>
     <div class="field" id="eSportWrap"><label for="eSport">Sport</label><input id="eSport" autocomplete="off"><span class="picked"></span></div>
@@ -1353,6 +1356,7 @@ function openBet(t, id) {
     <h4>Edit history</h4>
     <div class="history">${b.edits.length ? `<ul>${b.edits.slice().reverse().map(e => `<li><b>${when(e.at)}</b>: ${e.changes.map(c => `${esc(c.field)} ${esc(c.from)} → ${esc(c.to)}`).join("; ")}</li>`).join("")}</ul>` : `<div class="hint" style="font-size:13px">No edits. Bets can't be deleted, and every change is listed here.</div>`}</div>`);
   const picker = sportPicker(sh.querySelector("#eSportWrap"), b.sport, !detailsOpen);
+  wireSlip(sh, t, b);
   sh.querySelectorAll("[data-res]").forEach(btn => btn.onclick = () => {
     const res = btn.dataset.res;
     if (res === b.result) return;
@@ -2670,6 +2674,42 @@ function fitScreen() {
 }
 fitScreen();
 addEventListener("resize", fitScreen);
+
+/* ---------- Bet slip photos ----------
+   The screenshot used to fill in a bet is kept with it, so it can be opened again from History.
+   Signed-in accounts only, since the photo is stored with the account. Once attached it can't be swapped. */
+async function attachSlip(b, file) {
+  if (localMode || !Cloud.user || b.slip) return false;
+  try {
+    const { blob } = await shrinkPhoto(file);
+    const path = await Cloud.uploadSlip(blob);
+    // The state may have been reloaded while the photo uploaded, so find the bet again by id.
+    for (const t of state.trackers) { const x = t.bets.find(y => y.id === b.id); if (x && !x.slip) x.slip = path; }
+    b.slip = path; save();
+    if (!scrim) render();
+    return true;
+  } catch (x) { toast("Couldn't save the slip photo. Your bet is still logged.", "bad"); return false; }
+}
+function slipHTML(b) {
+  if (b.slip) return `<button class="slip" data-photo="${esc(b.slip)}" aria-label="Open bet slip"><img data-media="${esc(b.slip)}" alt=""><span><b>🧾 Bet slip</b><small>Tap to view</small></span></button>`;
+  if (localMode || !Cloud.user) return "";
+  return `<button class="btn sec slip-add" data-slipadd>🧾 Add bet slip photo</button><input type="file" accept="image/*" id="slipFile" hidden>`;
+}
+function wireSlip(sh, t, b) {
+  const img = sh.querySelector(".slip img");
+  if (img) Cloud.mediaUrl(img.dataset.media).then(u => { img.src = u; }).catch(() => img.closest(".slip").classList.add("broken"));
+  const add = sh.querySelector("[data-slipadd]"), f = sh.querySelector("#slipFile");
+  if (!add) return;
+  add.onclick = () => f.click();
+  f.onchange = async () => {
+    const file = f.files && f.files[0]; f.value = "";
+    if (!file) return;
+    add.disabled = true; add.textContent = "Saving slip…";
+    const ok = await attachSlip(b, file);
+    if (!sh.isConnected) return;
+    if (ok) { closeSheet(); openBet(t, b.id); } else { add.disabled = false; add.textContent = "🧾 Add bet slip photo"; }
+  };
+}
 
 /* =========================================================
    Boot
