@@ -25,5 +25,6 @@ The bottom bar has Home, Stats, Friends, Leaders and Chat. Home switches between
 
 ## Known limits
 
+- **Tracker privacy:** each tracker has a "Show to friends and community" tick in Tracker options. Unticked, only you can see it: its bets stay out of the feed, and it doesn't count on leaderboards or in challenges.
 - **Screenshot bet-slip reader:** it reads text with plain rules, not AI, so odds and stake are reliable but the sport and the bet description are best guesses to check. The reading happens on the phone. When you're signed in, the screenshot is then saved privately with the bet, so you can open it again from History (only you can see it). You can also add a slip photo to a bet you typed in.
 - **Streaks come from logged bets:** the database works out everyone's live streak, best streak and banked total from their logged bets, so nobody can type a number in. The bets themselves are still self-reported.

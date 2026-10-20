@@ -40,7 +40,8 @@ function rowsFor(state) {
   const rows = [];
   state.trackers.forEach((t, i) => {
     rows.push(["trackers", t.id, { id: t.id, name: t.name, accent: t.accent, start_balance: t.start, target: t.target, odds_mode: t.oddsMode,
-      fixed_odds: t.fixedOdds, paused: !!t.paused, target_edits: t.targetEdits || [], position: i, created_at: Math.round(t.createdAt) }]);
+      fixed_odds: t.fixedOdds, paused: !!t.paused, target_edits: t.targetEdits || [], position: i, created_at: Math.round(t.createdAt),
+      ...(t.shared !== undefined ? { shared: t.shared !== false } : {}) }]);
     for (const b of t.bets) rows.push(["bets", b.id, { id: b.id, tracker_id: t.id, odds: b.odds, sport: b.sport, text: b.text, link: b.link || "",
       result: b.result, created_at: Math.round(b.createdAt), settled_at: b.settledAt ? Math.round(b.settledAt) : null, edits: b.edits || [], ...(b.slip ? { slip: b.slip } : {}) }]);
     for (const a of t.actions) { const { id, type, at, ...payload } = a; rows.push(["tracker_actions", id, { id, tracker_id: t.id, type, at: Math.round(at), payload }]); }
@@ -53,7 +54,7 @@ function stateFrom(trackers, bets, actions, settings) {
   if (!trackers.length) return null;
   const byT = new Map(trackers.sort((a, b) => a.position - b.position || a.created_at - b.created_at).map(r => [r.id, {
     id: r.id, name: r.name, accent: r.accent, start: r.start_balance, target: r.target, oddsMode: r.odds_mode, fixedOdds: r.fixed_odds,
-    paused: r.paused, targetEdits: r.target_edits || [], createdAt: Number(r.created_at), bets: [], actions: [] }]));
+    paused: r.paused, targetEdits: r.target_edits || [], createdAt: Number(r.created_at), ...(r.shared === false ? { shared: false } : {}), bets: [], actions: [] }]));
   bets.sort((a, b) => a.created_at - b.created_at || (a.id < b.id ? -1 : 1)).forEach(r => { const t = byT.get(r.tracker_id); if (t) t.bets.push({
     id: r.id, odds: r.odds, sport: r.sport, text: r.text, link: r.link || "", result: r.result, createdAt: Number(r.created_at),
     settledAt: r.settled_at == null ? null : Number(r.settled_at), edits: r.edits || [], ...(r.slip ? { slip: r.slip } : {}) }); });
