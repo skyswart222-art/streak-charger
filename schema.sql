@@ -621,3 +621,98 @@ do $$ begin
     end if;
   end if;
 end $$;
+
+-- =====================================================================
+-- Stage 5 · Feed
+-- What you and your friends have been up to: bets logged, bets won or
+-- lost, and money banked. Only you and your friends appear. Friends can
+-- react to each other's activity with one emoji each.
+-- =====================================================================
+create index if not exists bets_user_created_idx on public.bets (user_id, created_at);
+create index if not exists actions_user_at_idx on public.tracker_actions (user_id, at);
+
+create table if not exists public.feed_reactions (
+  kind       text not null check (kind in ('bet', 'result', 'bank')),
+  ref_id     text not null check (length(ref_id) between 1 and 40),
+  user_id    uuid not null default auth.uid() references public.profiles (id) on delete cascade,
+  emoji      text not null check (emoji in ('🔥', '💪', '😂', '😬', '👏', '❤️')),
+  created_at timestamptz not null default now(),
+  primary key (kind, ref_id, user_id)
+);
+-- Only reachable through the functions below.
+alter table public.feed_reactions enable row level security;
+
+-- Whose activity a feed item belongs to (null if it doesn't exist).
+create or replace function public.feed_owner(kind text, ref text) returns uuid
+language sql stable security definer set search_path = public as $$
+  select case kind
+    when 'bet' then (select b.user_id from public.bets b where b.id = ref)
+    when 'result' then (select b.user_id from public.bets b where b.id = ref and b.result <> 'pending')
+    when 'bank' then (select a.user_id from public.tracker_actions a where a.id = ref and a.type = 'bank')
+  end;
+$$;
+
+-- Your feed, newest first. Page back with the `at` and `key` of the last item you have.
+create or replace function public.feed(before_at bigint default null, before_key text default null, lim integer default 30)
+returns table (kind text, ref_id text, key text, at bigint, user_id uuid, display_name text, avatar_url text, streak integer,
+               tier_idx integer, bet jsonb, tracker text, amount double precision, reactions jsonb, my_reaction text, reactors jsonb)
+language sql stable security definer set search_path = public as $$
+  with people as (
+    select auth.uid() as id where auth.uid() is not null
+    union
+    select case when f.requester = auth.uid() then f.addressee else f.requester end
+      from public.friendships f where f.status = 'accepted' and auth.uid() in (f.requester, f.addressee)
+  ), ev as (
+    select 'bet'::text as kind, b.id as ref_id, b.created_at as at, b.user_id, b.id as bet_id, b.tracker_id, null::double precision as amount
+      from public.bets b where b.user_id in (select id from people)
+    union all
+    select 'result', b.id, b.settled_at, b.user_id, b.id, b.tracker_id, null
+      from public.bets b where b.user_id in (select id from people) and b.result <> 'pending' and b.settled_at is not null
+    union all
+    select 'bank', a.id, a.at, a.user_id, null, a.tracker_id,
+           case when jsonb_typeof(a.payload -> 'amount') = 'number' then (a.payload ->> 'amount')::double precision else 0 end
+      from public.tracker_actions a where a.user_id in (select id from people) and a.type = 'bank'
+  ), page as (
+    select ev.*, ev.kind || ':' || ev.ref_id as key from ev
+     where before_at is null or (ev.at, ev.kind || ':' || ev.ref_id) < (before_at, coalesce(before_key, ''))
+     order by ev.at desc, key desc
+     limit least(greatest(lim, 1), 100)
+  )
+  select pg.kind, pg.ref_id, pg.key, pg.at, p.id, p.display_name, p.avatar_url, p.streak, p.tier_idx,
+         case when b.id is null then null else jsonb_build_object('id', b.id, 'text', b.text, 'sport', b.sport, 'odds', b.odds,
+           'result', b.result, 'created_at', b.created_at, 'settled_at', b.settled_at) end,
+         t.name, pg.amount,
+         coalesce((select jsonb_object_agg(x.emoji, x.n) from (select r.emoji, count(*) as n from public.feed_reactions r
+                    where r.kind = pg.kind and r.ref_id = pg.ref_id group by r.emoji) x), '{}'::jsonb),
+         (select r.emoji from public.feed_reactions r where r.kind = pg.kind and r.ref_id = pg.ref_id and r.user_id = auth.uid()),
+         -- On your own activity you see who reacted.
+         case when pg.user_id = auth.uid() then coalesce((select jsonb_agg(jsonb_build_object('name', rp.display_name, 'emoji', r.emoji) order by r.created_at)
+                    from public.feed_reactions r join public.profiles rp on rp.id = r.user_id
+                   where r.kind = pg.kind and r.ref_id = pg.ref_id), '[]'::jsonb) end
+    from page pg
+    join public.profiles p on p.id = pg.user_id
+    left join public.bets b on b.id = pg.bet_id
+    left join public.trackers t on t.id = pg.tracker_id
+   order by pg.at desc, pg.key desc;
+$$;
+
+-- React to a friend's activity (the same emoji again, or null, removes it).
+create or replace function public.feed_react(kind text, ref text, emoji text) returns void
+language plpgsql security definer set search_path = public as $$
+declare owner uuid := public.feed_owner(kind, ref); cur text;
+begin
+  if auth.uid() is null or owner is null or not public.are_friends(auth.uid(), owner) then
+    raise exception 'You can only react to your friends'' activity.';
+  end if;
+  select r.emoji into cur from public.feed_reactions r where r.kind = feed_react.kind and r.ref_id = ref and r.user_id = auth.uid();
+  if emoji is null or cur = emoji then
+    delete from public.feed_reactions r where r.kind = feed_react.kind and r.ref_id = ref and r.user_id = auth.uid();
+  else
+    insert into public.feed_reactions (kind, ref_id, user_id, emoji) values (kind, ref, auth.uid(), emoji)
+    on conflict on constraint feed_reactions_pkey do update set emoji = excluded.emoji, created_at = now();
+  end if;
+end $$;
+
+revoke all on function public.feed(bigint, text, integer), public.feed_react(text, text, text), public.feed_owner(text, text) from public, anon;
+revoke all on function public.feed_owner(text, text) from authenticated;
+grant execute on function public.feed(bigint, text, integer), public.feed_react(text, text, text) to authenticated;
