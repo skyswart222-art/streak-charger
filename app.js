@@ -524,7 +524,7 @@ function render(anim) {
   setAccent(state.page === "home" || state.page === "stats" ? t.accent : ACCENTS[0]);
   $("#fabBar").hidden = state.page !== "home";
   ({ home: renderHome, trackers: renderTrackers, stats: renderStats, planner: renderPlanner, awards: renderAwards, profile: renderProfile,
-     friends: renderFriends, leaderboard: () => renderSoon("leaderboard"), chat: () => renderSoon("chat") })[state.page](anim);
+     friends: renderFriends, leaderboard: renderLeaders, chat: () => renderSoon("chat") })[state.page](anim);
   // Stats, Planner and Awards share the Stats tab, with a switcher on top.
   if (SUBNAV.some(x => x[0] === state.page)) $("#view").insertAdjacentHTML("afterbegin", `<div class="seg subnav">${SUBNAV.map(([id, n]) => `<button data-nav="${id}" class="${state.page === id ? "on" : ""}">${n}</button>`).join("")}</div>`);
 }
@@ -1608,7 +1608,7 @@ function startApp() {
   signedOut(false);
   evalAchievements(); save(); render();
   // A different account may have just logged in on this device, so start the friends list afresh.
-  friends = null; friendsErr = ""; fQuery = ""; fResults = null;
+  friends = null; friendsErr = ""; fQuery = ""; fResults = null; boards = {};
   if (!localMode) loadFriends(true);
 }
 function readUI() { try { return JSON.parse(localStorage.getItem(UI_KEY) || "{}"); } catch (e) { return {}; } }
@@ -1701,7 +1701,6 @@ function syncLabel() { return { saved: "✓ synced to your account", saving: "sa
 
 /* ---------- Coming-soon pages ---------- */
 const SOON = {
-  leaderboard: { icon: "🏆", title: "Leaderboard", text: "See who's on the longest live streak, the highest tier and the biggest banked total.", items: ["Live streak ranking", "Tier ranking", "Friends-only view"] },
   chat: { icon: "💬", title: "Chat", text: "Talk bets with your friends, share a slip and react to each other's wins.", items: ["Friend chats", "Share a bet", "Reactions"] },
 };
 function renderSoon(id) {
@@ -1723,7 +1722,10 @@ async function loadFriends(force) {
   if (!state || scrim) return;
   renderMe(); if (state.page === "friends") renderFriends();
 }
-document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && state) loadFriends(); });
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "visible" || !state) return;
+  loadFriends(); if (state.page === "leaderboard") loadBoard(true);
+});
 
 function friendLine(p) {
   const t = tierOf(p);
@@ -1793,7 +1795,7 @@ async function friendDo(id, fn, msg) {
   document.querySelectorAll(`[data-fid="${id}"] .fact button`).forEach(b => b.disabled = true);
   try { const r = await fn(); if (msg) toast(typeof msg === "function" ? msg(r) : msg); }
   catch (x) { toast(Cloud.nice(x), "bad"); }
-  fBusy.delete(id); await loadFriends(true);
+  fBusy.delete(id); boards = {}; await loadFriends(true);
 }
 const nameOf = id => { const p = relationOf(id) || (fResults || []).find(x => x.id === id); return p ? p.display_name : "them"; };
 document.addEventListener("click", e => {
@@ -1804,7 +1806,11 @@ document.addEventListener("click", e => {
   if (d.faccept) return friendDo(d.faccept, () => Cloud.friendRespond(d.faccept, true), `You and ${nameOf(d.faccept)} are now friends.`);
   if (d.fdecline) return friendDo(d.fdecline, () => Cloud.friendRespond(d.fdecline, false), "Request declined.");
   if (d.fcancel) return friendDo(d.fcancel, () => Cloud.friendRemove(d.fcancel), "Request cancelled.");
-  if (d.fopen) { const p = relationOf(d.fopen) || (fResults || []).find(x => x.id === d.fopen); if (p) openFriend(p); }
+  if (d.fopen) {
+    const p = relationOf(d.fopen) || (fResults || []).find(x => x.id === d.fopen) || Object.values(boards).flatMap(b => b.rows || []).find(x => x.id === d.fopen);
+    if (p && p.id === Cloud.user.id) return go("profile");
+    if (p) openFriend(p);
+  }
 });
 
 // A friend's profile card: photo with streak badge, glowing name and the stats the database worked out.
@@ -1834,6 +1840,73 @@ function openFriend(p) {
   if (b("#fCancel")) b("#fCancel").onclick = () => { closeSheet(); friendDo(p.id, () => Cloud.friendRemove(p.id), "Request cancelled."); };
   if (b("#fAdd")) b("#fAdd").onclick = () => { closeSheet(); friendDo(p.id, () => Cloud.friendRequest(p.id), r => r === "friends" ? `You and ${p.display_name} are now friends.` : `Request sent to ${p.display_name}.`); };
 }
+
+/* ---------- Leaderboard ----------
+   Ranked by the database from everyone's logged bets. Friends shows you and your friends;
+   Everyone shows the top 50 who have something on the board, plus your own spot. */
+const BOARD_METRICS = [["streak", "Live streak"], ["best", "Best streak"], ["banked", "Banked"]];
+let boards = {}, boardScope = "friends", boardMetric = "streak";
+const boardKey = () => boardScope + ":" + boardMetric;
+async function loadBoard(force) {
+  const k = boardKey(), b = boards[k];
+  if (!Cloud.user || localMode || (!force && b && (b.loading || Date.now() - b.at < 15000))) return;
+  boards[k] = { ...(b || {}), loading: true, at: Date.now() };
+  try { boards[k] = { rows: await Cloud.leaderboard(boardScope, boardMetric), at: Date.now() }; }
+  catch (x) { boards[k] = { ...(b || {}), err: Cloud.nice(x), at: Date.now() }; }
+  if (state && !scrim && state.page === "leaderboard" && boardKey() === k) renderLeaders();
+}
+const boardValue = (p, m = boardMetric) => m === "banked" ? moneyShort(p.banked || 0) : String(m === "best" ? p.best_streak || 0 : p.streak || 0);
+const boardUnit = (p, m = boardMetric) => m === "banked" ? "banked" : m === "best" ? "best" : ((p.streak || 0) === 1 ? "win" : "wins");
+const MEDALS = ["🥇", "🥈", "🥉"];
+
+function renderLeaders() {
+  if (localMode) {
+    $("#view").innerHTML = `<div class="head" style="padding-top:18px"><div><div class="eyebrow">Leaderboard</div><h1>Needs an account</h1></div></div>
+      <div class="glass card"><div class="cap" style="margin:0">The leaderboard switches on once config.js has your Supabase keys and you're logged in.</div></div>`;
+    return;
+  }
+  loadBoard();
+  const b = boards[boardKey()] || {}, rows = b.rows || [], meRow = rows.find(r => r.is_me);
+  const top = rows.filter(r => !r.is_me || r.rank <= 50), podium = top.slice(0, 3).filter(r => r.score > 0), rest = top.slice(podium.length);
+  const outside = meRow && !top.includes(meRow);
+  const lonely = boardScope === "friends" && rows.length === 1;
+  $("#view").innerHTML = `
+    <div class="head" style="padding-top:18px"><div><div class="eyebrow">${boardScope === "friends" ? "You and your friends" : "Everyone on Streak Charger"}</div><h1>Leaderboard</h1></div></div>
+    <div class="seg" style="margin-bottom:10px">${[["friends", "Friends"], ["everyone", "Everyone"]].map(([k, n]) => `<button data-bscope="${k}" class="${boardScope === k ? "on" : ""}">${n}</button>`).join("")}</div>
+    <div class="lb-metrics">${BOARD_METRICS.map(([k, n]) => `<button data-bmetric="${k}" class="${boardMetric === k ? "on" : ""}">${n}</button>`).join("")}</div>
+    ${b.err ? `<div class="glass card"><div class="err" style="margin:0">${esc(b.err)}</div></div>` : ""}
+    ${!b.rows && !b.err ? `<div class="glass card"><div class="cap" style="margin:0">Loading the leaderboard…</div></div>` : ""}
+    ${podium.length ? `<div class="lb-podium n${podium.length}">${podium.map(podiumHTML).join("")}</div>` : ""}
+    ${rest.length ? `<div class="glass card flist">${rest.map(boardRow).join("")}</div>` : ""}
+    ${outside ? `<div class="section-h"><h2>Your spot</h2></div><div class="glass card flist">${boardRow(meRow)}</div>` : ""}
+    ${b.rows && lonely ? `<div class="glass card fempty"><div class="soon-ic">🏆</div><p>It's just you so far. Add friends to see how you stack up, or switch to Everyone.</p><button class="btn sec" data-nav="friends">Find friends</button></div>` : ""}
+    ${b.rows && !rows.length ? `<div class="glass card fempty"><div class="soon-ic">🏆</div><p>Nobody's on this board yet.</p></div>` : ""}
+    ${b.rows ? `<div class="note" style="margin:12px 0 0;text-align:center">Worked out from logged bets${boardMetric === "streak" ? ". A loss resets a live streak" : ""}.</div>` : ""}`;
+}
+function podiumHTML(p) {
+  const t = tierOf(p), i = p.rank - 1;
+  return `<button class="lb-pod p${Math.min(i, 2) + 1} ${p.is_me ? "me" : ""}" data-fopen="${p.id}">
+    <span class="lb-medal">${MEDALS[Math.min(i, 2)]}</span>
+    ${personAvatar(p.display_name, p.avatar_url, p.streak, t, i === 0 ? 78 : 62, { badge: true })}
+    <b>${glowNameAs(p.display_name, t)}</b>
+    <span class="lb-val">${boardValue(p)}<small> ${boardUnit(p)}</small></span></button>`;
+}
+function boardRow(p) {
+  const t = tierOf(p);
+  const sub = boardMetric === "streak" ? (p.streak ? `${t.sym} ${t.name}${p.streak_tracker ? ` · on ${esc(p.streak_tracker)}` : ""}` : `No live streak · best ${p.best_streak || 0}`)
+    : boardMetric === "best" ? `Live now: ${t.sym} ${p.streak || 0}` : `${t.sym} ${p.streak || 0} live · best ${p.best_streak || 0}`;
+  return `<div class="frow lb-row ${p.is_me ? "me" : ""}" data-fid="${p.id}">
+    <span class="lb-rank">${p.rank}</span>
+    <button class="fwho" data-fopen="${p.id}">${personAvatar(p.display_name, p.avatar_url, p.streak, t, 42, { badge: true })}
+      <span class="fname"><b>${glowNameAs(p.display_name, t)}${p.is_me ? ` <em class="lb-you">You</em>` : ""}</b><small>${sub}</small></span></button>
+    <span class="lb-score">${boardValue(p)}</span></div>`;
+}
+document.addEventListener("click", e => {
+  if (!state || !Cloud.user) return;
+  const s = e.target.closest("[data-bscope]"), m = e.target.closest("[data-bmetric]");
+  if (s) { boardScope = s.dataset.bscope; renderLeaders(); }
+  if (m) { boardMetric = m.dataset.bmetric; renderLeaders(); }
+});
 
 /* =========================================================
    Boot

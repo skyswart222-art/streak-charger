@@ -446,3 +446,35 @@ revoke all on function public.friend_request(uuid), public.friend_respond(uuid, 
                        public.my_friends(), public.search_profiles(text) from public, anon;
 grant execute on function public.friend_request(uuid), public.friend_respond(uuid, boolean), public.friend_remove(uuid),
                           public.my_friends(), public.search_profiles(text) to authenticated;
+
+-- =====================================================================
+-- Stage 3 · Leaderboard
+-- Ranks your friends (and you), or everyone, by live streak, best streak
+-- or banked total. Everyone-rankings leave out people on zero. Your own
+-- row always comes back, even when you're outside the top.
+-- =====================================================================
+create or replace function public.leaderboard(scope text default 'friends', metric text default 'streak', lim integer default 50)
+returns table (rank bigint, id uuid, display_name text, avatar_url text, streak integer, tier_idx integer,
+               best_streak integer, banked double precision, streak_tracker text, score double precision, is_me boolean)
+language sql stable set search_path = public as $$
+  with pool as (
+    select p.*,
+           case metric when 'best' then p.best_streak::double precision when 'banked' then p.banked else p.streak::double precision end as score
+      from public.profiles p
+     where auth.uid() is not null
+       and (p.id = auth.uid()
+            or (scope = 'everyone')
+            or exists (select 1 from public.friendships f
+                        where f.status = 'accepted'
+                          and ((f.requester = auth.uid() and f.addressee = p.id) or (f.addressee = auth.uid() and f.requester = p.id))))
+  ), ranked as (
+    select rank() over (order by score desc) as rank, pool.* from pool
+     where scope <> 'everyone' or score > 0 or id = auth.uid()
+  )
+  select r.rank, r.id, r.display_name, r.avatar_url, r.streak, r.tier_idx, r.best_streak, r.banked, r.streak_tracker, r.score, r.id = auth.uid()
+    from ranked r
+   where r.rank <= least(greatest(lim, 1), 100) or r.id = auth.uid()
+   order by r.rank, r.display_name;
+$$;
+revoke all on function public.leaderboard(text, text, integer) from public, anon;
+grant execute on function public.leaderboard(text, text, integer) to authenticated;

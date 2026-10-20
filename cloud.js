@@ -126,6 +126,7 @@ const myFriends = () => rpc("my_friends");
 const friendRequest = id => rpc("friend_request", { target: id });
 const friendRespond = (id, accept) => rpc("friend_respond", { other: id, accept });
 const friendRemove = id => rpc("friend_remove", { other: id });
+const leaderboard = (scope, metric) => rpc("leaderboard", { scope, metric, lim: 50 });
 
 /* ---------- Loading ---------- */
 async function fetchAll() {
@@ -184,6 +185,6 @@ addEventListener("online", () => latest && flush());
 addEventListener("pagehide", () => { if (latest) flush(); });
 
 window.Cloud = { configured, currentUser, onAuth, nameAvailable, signUp, signIn, signOut, resetPassword, setPassword,
-  getProfile, updateProfile, uploadAvatar, searchProfiles, myFriends, friendRequest, friendRespond, friendRemove, load, fetchAll, prime, merge, readCache, writeCache, queue, flush, pending, nice,
+  getProfile, updateProfile, uploadAvatar, searchProfiles, myFriends, friendRequest, friendRespond, friendRemove, leaderboard, load, fetchAll, prime, merge, readCache, writeCache, queue, flush, pending, nice,
   get user() { return user; }, set onStatus(f) { onStatus = f; }, set onRejected(f) { onRejected = f; } };
 })();
