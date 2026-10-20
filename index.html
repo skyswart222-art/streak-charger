@@ -714,6 +714,12 @@ html { touch-action: manipulation; -webkit-text-size-adjust: 100%; text-size-adj
 .topbar { background: none; isolation: isolate; }
 .topbar::before { content: ""; position: absolute; z-index: -1; inset: 0; background: var(--bg); box-shadow: 0 0 0 100vmax var(--bg); clip-path: inset(-100vmax -100vmax 0 -100vmax); }
 
+/* No soft colour glow behind the screens: a plain, flat page background. Unlocked themes keep their own scenery. */
+.bgfx { background: var(--bg); }
+/* Chat header: solid, no see-through blur, and solid above it when the page is pulled down. */
+.convo-head { background: var(--bg); -webkit-backdrop-filter: none; backdrop-filter: none; isolation: isolate; }
+.convo-head::before { content: ""; position: absolute; z-index: -1; inset: 0; background: var(--bg); box-shadow: 0 0 0 100vmax var(--bg); clip-path: inset(-100vmax 0 0 0); }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
   .stamp, .x-mark, .glass-fx .hg, .glass-fx .rk, .tierburst { animation: fadeQuick 1.2s forwards !important; }
