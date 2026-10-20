@@ -491,10 +491,11 @@ const NAV = [
   { id: "leaderboard", n: "Leaders", ic: '<path d="M8 20V11h8v9"/><path d="M3 20v-5h5M16 20v-7h5v7"/><path d="M2 20h20"/><path d="m12 3 1.2 2.4 2.6.4-1.9 1.8.5 2.6L12 9l-2.4 1.2.5-2.6-1.9-1.8 2.6-.4z"/>' },
   { id: "chat", n: "Chat", ic: '<path d="M5 5h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-8l-5 4v-4H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z"/>' },
 ];
-const PAGES = ["home", "trackers", "stats", "planner", "awards", "friends", "leaderboard", "chat", "profile"];
+const PAGES = ["home", "feed", "trackers", "stats", "planner", "awards", "friends", "leaderboard", "chat", "profile"];
 // Which bottom tab lights up for each page.
-const navOf = p => ({ trackers: "home", planner: "stats", awards: "stats", profile: "" }[p] ?? p);
+const navOf = p => ({ trackers: "home", feed: "home", planner: "stats", awards: "stats", profile: "" }[p] ?? p);
 const SUBNAV = [["stats", "Stats"], ["planner", "Planner"], ["awards", "Awards"]];
+const HOMENAV = [["home", "My tracker"], ["feed", "Feed"]];
 let previewSkin = null;
 function applySkin() { document.documentElement.dataset.skin = previewSkin || state.skin; }
 function setAccent(c) {
@@ -524,9 +525,11 @@ function render(anim) {
   setAccent(state.page === "home" || state.page === "stats" ? t.accent : ACCENTS[0]);
   $("#fabBar").hidden = state.page !== "home";
   ({ home: renderHome, trackers: renderTrackers, stats: renderStats, planner: renderPlanner, awards: renderAwards, profile: renderProfile,
-     friends: renderFriends, leaderboard: renderLeaders, chat: renderChat })[state.page](anim);
+     friends: renderFriends, leaderboard: renderLeaders, chat: renderChat, feed: renderFeed })[state.page](anim);
   // Stats, Planner and Awards share the Stats tab, with a switcher on top.
   if (SUBNAV.some(x => x[0] === state.page)) $("#view").insertAdjacentHTML("afterbegin", `<div class="seg subnav">${SUBNAV.map(([id, n]) => `<button data-nav="${id}" class="${state.page === id ? "on" : ""}">${n}</button>`).join("")}</div>`);
+  // Home has your tracker and the friends feed, with the same switcher.
+  else if (!localMode && HOMENAV.some(x => x[0] === state.page)) $("#view").insertAdjacentHTML("afterbegin", `<div class="seg subnav">${HOMENAV.map(([id, n]) => `<button data-nav="${id}" class="${state.page === id ? "on" : ""} ${id === "feed" ? "has-dot" : ""}" ${id === "feed" ? `data-count="${feedNewLabel()}"` : ""}>${n}</button>`).join("")}</div>`);
 }
 
 /* ---------- Home ---------- */
@@ -1503,6 +1506,8 @@ function renderMe() {
   if (fb) { fb.classList.add("has-dot"); fb.dataset.count = n || ""; }
   const cb = $('#nav [data-nav="chat"]'), u = unreadCount();
   if (cb) { cb.classList.add("has-dot"); cb.dataset.count = u > 99 ? "99+" : u || ""; }
+  const hb = $('#nav [data-nav="home"]');
+  if (hb) { hb.classList.add("has-dot"); hb.dataset.count = state.page === "feed" ? "" : feedNewLabel(); }
   document.body.classList.toggle("in-convo", state.page === "chat" && !!chatWith);
   if (!localMode && Cloud.user) chatPoll();
 }
@@ -1613,8 +1618,8 @@ function startApp() {
   evalAchievements(); save(); render();
   // A different account may have just logged in on this device, so start the friends list afresh.
   friends = null; friendsErr = ""; fQuery = ""; fResults = null; boards = {};
-  chats = null; chatWith = null; convos = {};
-  if (!localMode) { loadFriends(true); loadChats(true); Cloud.onChat(onChatEvent); }
+  chats = null; chatWith = null; convos = {}; feed = null; feedErr = ""; feedPick = null;
+  if (!localMode) { loadFriends(true); loadChats(true); loadFeed(); Cloud.onChat(onChatEvent); }
 }
 function readUI() { try { return JSON.parse(localStorage.getItem(UI_KEY) || "{}"); } catch (e) { return {}; } }
 
@@ -1724,11 +1729,11 @@ async function loadFriends(force) {
   try { friends = await Cloud.myFriends(); friendsErr = ""; }
   catch (x) { friendsErr = Cloud.nice(x); }
   if (!state || scrim) return;
-  renderMe(); if (state.page === "friends") renderFriends();
+  renderMe(); if (state.page === "friends") renderFriends(); else if (state.page === "feed") renderFeedBody();
 }
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState !== "visible" || !state) return;
-  loadFriends(); loadChats(true); if (state.page === "leaderboard") loadBoard(true);
+  loadFriends(); loadChats(true); loadFeed(state.page === "feed" ? 0 : 30000); if (state.page === "leaderboard") loadBoard(true);
   if (state.page === "chat" && chatWith) loadConvo(chatWith);
 });
 
@@ -1966,6 +1971,7 @@ function chatPoll() {
   chatTimer = setInterval(() => {
     if (!state || localMode || document.visibilityState !== "visible") return;
     if (state.page === "chat" && chatWith) loadConvo(chatWith); else loadChats(true);
+    loadFeed(state.page === "feed" ? 15000 : 60000);
   }, every);
 }
 function openChat(id) { chatWith = id; chatBet = null; go("chat"); }
@@ -2114,6 +2120,110 @@ document.addEventListener("click", async e => {
   const b = t.closest(".msg .bubble");
   if (b && state.page === "chat") return openReactions(b.closest("[data-msg]"));
   if (!t.closest(".rx-pick")) document.querySelectorAll(".rx-pick").forEach(x => x.remove());
+});
+
+/* ---------- Feed: what you and your friends have been betting ----------
+   Bets logged, bets won or lost, and money banked, newest first. Friends react with one emoji each. */
+let feed = null, feedAt = 0, feedErr = "", feedLoading = false, feedDone = false, feedPick = null;
+const FEED_SEEN_KEY = () => "streak-charger.feedSeen." + (Cloud.user ? Cloud.user.id : "local");
+function feedSeen() { try { return Number(localStorage.getItem(FEED_SEEN_KEY())) || 0; } catch (e) { return 0; } }
+function markFeedSeen() {
+  // Friend activity up to the newest item counts as seen; with none yet, everything before now does.
+  const top = (feed || []).find(x => x.user_id !== Cloud.user.id), at = top ? Number(top.at) : Date.now() - 60000;
+  if (at > feedSeen()) try { localStorage.setItem(FEED_SEEN_KEY(), String(at)); } catch (e) {}
+}
+// New friend activity since you last opened the feed (none counted the first time, so it doesn't start at 30).
+function feedNew() {
+  const seen = feedSeen(); if (!seen || !feed) return 0;
+  return feed.filter(x => x.user_id !== Cloud.user.id && x.at > seen).length;
+}
+const feedNewLabel = () => { const n = feedNew(); return n >= 30 ? "30+" : n || ""; };
+async function loadFeed(maxAge = 0, more = false) {
+  if (!Cloud.user || localMode || feedLoading || (!more && Date.now() - feedAt < maxAge)) return;
+  feedLoading = true; if (!more) feedAt = Date.now();
+  try {
+    if (more) {
+      const last = feed[feed.length - 1], next = await Cloud.feed(last.at, last.key);
+      feed = feed.concat(next); feedDone = next.length < 30;
+    } else {
+      const fresh = await Cloud.feed();
+      // Keep any older pages already loaded below the fresh first page.
+      const keys = new Set(fresh.map(x => x.key)), last = fresh[fresh.length - 1];
+      const rest = feed && last ? feed.filter(x => !keys.has(x.key) && (x.at < last.at || (x.at === last.at && x.key < last.key))) : [];
+      if (!rest.length) feedDone = fresh.length < 30;
+      feed = fresh.concat(rest);
+      if (!feedSeen()) markFeedSeen();
+    }
+    feedErr = "";
+  } catch (x) { feedErr = Cloud.nice(x); }
+  feedLoading = false;
+  if (!state || scrim) return;
+  renderMe();
+  if (state.page === "feed") renderFeedBody(); else if (state.page === "home") { const b = $('.subnav [data-nav="feed"]'); if (b) b.dataset.count = feedNewLabel(); }
+}
+
+function renderFeed() {
+  if (localMode) { go("home"); return; }
+  $("#view").innerHTML = `<div class="head" style="padding-top:18px"><div><div class="eyebrow">You and your friends</div><h1>Feed</h1></div></div><div id="feedBody"></div>`;
+  renderFeedBody();
+  loadFeed(4000); loadFriends();
+}
+function renderFeedBody() {
+  const box = $("#feedBody"); if (!box) return;
+  const hasFriends = (friends || []).some(f => f.status === "accepted") || (feed || []).some(x => x.user_id !== Cloud.user.id);
+  if (feedErr && !feed) { box.innerHTML = `<div class="glass card"><div class="err" style="margin:0">${esc(feedErr)}</div></div>`; return; }
+  if (!feed) { box.innerHTML = `<div class="glass card"><div class="cap" style="margin:0">Loading the feed…</div></div>`; return; }
+  const seen = feedSeen();
+  let html = friends && !hasFriends ? `<div class="glass card fempty"><div class="soon-ic">📣</div><p>Your feed shows the bets your friends log, win and lose, as they happen. Add a friend to fill it up.</p><button class="btn sec" data-nav="friends">Find friends</button></div>` : "";
+  if (!feed.length && hasFriends) html += `<div class="glass card fempty"><div class="soon-ic">📣</div><p>Nothing here yet. When you or your friends log a bet, it shows up here.</p></div>`;
+  let lastDay = "";
+  for (const it of feed) {
+    const day = new Date(it.at).toDateString();
+    if (day !== lastDay) { html += `<div class="convo-day feed-day">${day === new Date().toDateString() ? "Today" : chatTime(it.at, true)}</div>`; lastDay = day; }
+    html += feedItem(it, it.user_id !== Cloud.user.id && it.at > seen && seen > 0);
+  }
+  if (feed.length && !feedDone) html += `<button class="btn sec feed-more" data-feedmore ${feedLoading ? "disabled" : ""}>Show older activity</button>`;
+  box.innerHTML = html;
+  markFeedSeen(); renderMe();
+}
+function feedWhat(it) {
+  if (it.kind === "bank") return `banked <b>${money(it.amount || 0)}</b>`;
+  if (it.kind === "result") return it.bet && it.bet.result === "win" ? `won a bet ✅` : `lost a bet ❌`;
+  return "logged a bet";
+}
+function feedItem(it, isNew) {
+  const mine = it.user_id === Cloud.user.id, t = tierOf(it), rx = Object.entries(it.reactions || {}).sort((a, b) => b[1] - a[1]);
+  const time = new Date(Number(it.at)).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  const card = it.bet ? betCardHTML({ ...it.bet, tracker: it.tracker })
+    : `<div class="mbet bank"><div class="mbet-top"><span>💰 Banked${it.tracker ? ` · ${esc(it.tracker)}` : ""}</span></div><div class="mbet-text">${money(it.amount || 0)}</div><div class="mbet-odds">Taken off the run and kept</div></div>`;
+  const who = (it.reactors || []).map(r => `${esc(r.name)} ${r.emoji}`).join(", ");
+  return `<div class="glass feed-item ${isNew ? "new" : ""}" data-fkey="${esc(it.key)}">
+    <div class="feed-top">
+      <button class="fwho" ${mine ? `data-nav="profile"` : `data-fopen="${it.user_id}"`}>${personAvatar(it.display_name, it.avatar_url, it.streak, t, 40, { badge: true })}</button>
+      <div class="feed-line"><span>${mine ? "<b>You</b>" : `<b>${glowNameAs(it.display_name, t)}</b>`} ${feedWhat(it)}</span><small>${time}</small></div>
+    </div>
+    ${card}
+    <div class="feed-rx">
+      ${rx.map(([e, n]) => `<span class="rx-chip ${it.my_reaction === e ? "me" : ""}" ${mine ? "" : `data-freact="${e}"`}>${e} ${n}</span>`).join("")}
+      ${mine ? (who ? `<small class="feed-who">${who}</small>` : "") : `<button class="rx-add" data-fpick aria-label="React">${it.my_reaction ? "Change" : "React"}</button>`}
+    </div>
+    ${feedPick === it.key ? `<div class="feed-pick">${REACTS.map(e => `<button data-freact="${e}" class="${it.my_reaction === e ? "on" : ""}">${e}</button>`).join("")}</div>` : ""}
+  </div>`;
+}
+document.addEventListener("click", async e => {
+  if (!state || !Cloud.user || state.page !== "feed") return;
+  const t = e.target;
+  if (t.closest("[data-feedmore]")) { t.closest("[data-feedmore]").disabled = true; return loadFeed(0, true); }
+  const card = t.closest("[data-fkey]"); if (!card) { if (feedPick) { feedPick = null; renderFeedBody(); } return; }
+  const key = card.dataset.fkey, it = feed.find(x => x.key === key); if (!it) return;
+  if (t.closest("[data-fpick]")) { feedPick = feedPick === key ? null : key; return renderFeedBody(); }
+  const r = t.closest("[data-freact]"); if (!r) return;
+  const emoji = r.dataset.freact, prev = it.my_reaction, rx = { ...(it.reactions || {}) };
+  if (prev) { rx[prev]--; if (!rx[prev]) delete rx[prev]; }
+  if (prev !== emoji) rx[emoji] = (rx[emoji] || 0) + 1;
+  it.reactions = rx; it.my_reaction = prev === emoji ? null : emoji; feedPick = null;
+  renderFeedBody();
+  try { await Cloud.feedReact(it.kind, it.ref_id, emoji); } catch (x) { toast(Cloud.nice(x), "bad"); loadFeed(); }
 });
 
 /* =========================================================

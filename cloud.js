@@ -133,6 +133,8 @@ const myChats = () => rpc("my_chats");
 const chatMessages = (other, beforeId) => rpc("chat_messages", { other, before_id: beforeId || null, lim: 60 });
 const chatMarkRead = other => rpc("chat_mark_read", { other });
 const chatReact = (msg, emoji) => rpc("chat_react", { msg, emoji });
+const feed = (beforeAt, beforeKey) => rpc("feed", { before_at: beforeAt || null, before_key: beforeKey || null, lim: 30 });
+const feedReact = (kind, ref, emoji) => rpc("feed_react", { kind, ref, emoji });
 async function sendMessage(other, body, betId) {
   if (betId) await flush(); // a shared bet has to reach the server before a message can point at it
   return must(await sb.from("messages").insert({ recipient: other, body: body || "", bet_id: betId || null }).select("id").single());
@@ -208,6 +210,6 @@ addEventListener("online", () => latest && flush());
 addEventListener("pagehide", () => { if (latest) flush(); });
 
 window.Cloud = { configured, currentUser, onAuth, nameAvailable, signUp, signIn, signOut, resetPassword, setPassword,
-  getProfile, updateProfile, uploadAvatar, searchProfiles, myFriends, friendRequest, friendRespond, friendRemove, leaderboard, myChats, chatMessages, chatMarkRead, chatReact, sendMessage, onChat, offChat, load, fetchAll, prime, merge, readCache, writeCache, queue, flush, pending, nice,
+  getProfile, updateProfile, uploadAvatar, searchProfiles, myFriends, friendRequest, friendRespond, friendRemove, leaderboard, myChats, chatMessages, chatMarkRead, chatReact, feed, feedReact, sendMessage, onChat, offChat, load, fetchAll, prime, merge, readCache, writeCache, queue, flush, pending, nice,
   get user() { return user; }, set onStatus(f) { onStatus = f; }, set onRejected(f) { onRejected = f; } };
 })();
