@@ -1729,7 +1729,7 @@ async function loadFriends(force) {
   try { friends = await Cloud.myFriends(); friendsErr = ""; }
   catch (x) { friendsErr = Cloud.nice(x); }
   if (!state || scrim) return;
-  renderMe(); if (state.page === "friends") renderFriends(); else if (state.page === "feed") renderFeedBody();
+  renderMe(); if (state.page === "friends") renderFriends(); else if (state.page === "feed") renderFeedBody(); else if (state.page === "chat" && !chatWith) renderChat();
 }
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState !== "visible" || !state) return;
@@ -1924,11 +1924,19 @@ document.addEventListener("click", e => {
    covers the moments a live connection drops. */
 let chatsLoading = false, chats = null, chatsAt = 0, chatsErr = "", chatWith = null, convos = {}, chatBet = null, chatTimer = null, sending = false;
 const REACTS = ["🔥", "💪", "😂", "😬", "👏", "❤️"];
-const unreadCount = () => (chats || []).reduce((a, c) => a + Number(c.unread || 0), 0);
+let groups = null;
+const peopleText = n => n === 1 ? "1 person" : n + " people";
+// A group chat is opened as "g:<id>"; a one-to-one chat by the friend's id.
+const isGroup = id => typeof id === "string" && id.startsWith("g:"), gidOf = id => Number(id.slice(2));
+const groupOf = id => (groups || []).find(g => "g:" + g.id === id);
+const unreadCount = () => (chats || []).reduce((a, c) => a + Number(c.unread || 0), 0) + (groups || []).reduce((a, g) => a + Number(g.unread || 0), 0);
 async function loadChats(force) {
   if (!Cloud.user || localMode || chatsLoading || (!force && Date.now() - chatsAt < 8000)) return;
   chatsAt = Date.now(); chatsLoading = true;
-  try { chats = await Cloud.myChats(); chatsErr = ""; } catch (x) { chatsErr = Cloud.nice(x); }
+  // Groups load on their own, so one-to-one chats still work if the database hasn't been updated for groups yet.
+  const [c, g] = await Promise.allSettled([Cloud.myChats(), Cloud.myGroups()]);
+  if (c.status === "fulfilled") { chats = c.value; chatsErr = ""; } else chatsErr = Cloud.nice(c.reason);
+  if (g.status === "fulfilled") groups = g.value; else if (!groups) groups = [];
   chatsLoading = false;
   if (!state || scrim) return;
   renderMe(); if (state.page === "chat" && !chatWith) renderChat();
@@ -1936,11 +1944,12 @@ async function loadChats(force) {
 async function loadConvo(id, older) {
   const c = convos[id] || (convos[id] = { msgs: null });
   try {
+    const fetch = before => isGroup(id) ? Cloud.groupMessages(gidOf(id), before) : Cloud.chatMessages(id, before);
     if (older) {
-      const more = await Cloud.chatMessages(id, c.msgs[0].id);
+      const more = await fetch(c.msgs[0].id);
       c.msgs = more.concat(c.msgs); c.done = more.length < 60;
     } else {
-      const fresh = await Cloud.chatMessages(id);
+      const fresh = await fetch();
       const grew = !c.msgs || fresh.length !== c.msgs.length || JSON.stringify(fresh) !== JSON.stringify(c.msgs.slice(-fresh.length));
       if (!c.msgs) c.done = fresh.length < 60;
       if (!grew) return;
@@ -1948,16 +1957,27 @@ async function loadConvo(id, older) {
     }
     c.err = "";
   } catch (x) { c.err = Cloud.nice(x); }
-  if (state && state.page === "chat" && chatWith === id && !scrim) {
-    if ((c.msgs || []).some(m => m.sender === id && !m.read_at)) Cloud.chatMarkRead(id).then(() => loadChats(true)).catch(() => {});
+  if (state && state.page === "chat" && chatWith === id) {
+    if (isGroup(id)) { const g = groupOf(id); if (g && Number(g.unread)) { g.unread = 0; renderMe(); Cloud.groupMarkRead(gidOf(id)).then(() => loadChats(true)).catch(() => {}); } }
+    else if ((c.msgs || []).some(m => m.sender === id && !m.read_at)) Cloud.chatMarkRead(id).then(() => loadChats(true)).catch(() => {});
     renderConvoBody(older);
   }
 }
 function onChatEvent(kind, row) {
   if (!state || !Cloud.user || !row) return;
-  const me = Cloud.user.id, other = kind === "reaction" ? null : (row.sender === me ? row.recipient : row.sender);
+  const me = Cloud.user.id;
   loadChats(true);
-  if (state.page === "chat" && chatWith && (kind === "reaction" || other === chatWith)) loadConvo(chatWith);
+  if (kind === "gmessage" || kind === "greaction") {
+    const gid = "g:" + row.group_id;
+    if (state.page === "chat" && chatWith === gid) loadConvo(gid);
+    else if (kind === "gmessage" && row.sender && row.sender !== me && state.page !== "chat") {
+      const g = groupOf(gid), who = g && (g.members || []).find(m => m.id === row.sender);
+      toast(`👥 ${g ? g.name : "Group"} · ${who ? who.name + ": " : ""}${row.body ? row.body.slice(0, 60) : "shared a bet"}`);
+    }
+    return;
+  }
+  const other = kind === "reaction" ? null : (row.sender === me ? row.recipient : row.sender);
+  if (state.page === "chat" && chatWith && !isGroup(chatWith) && (kind === "reaction" || other === chatWith)) loadConvo(chatWith);
   else if (kind === "message" && row.sender !== me && state.page !== "chat") {
     const c = (chats || []).find(x => x.id === row.sender) || (friends || []).find(x => x.id === row.sender);
     toast(`💬 ${c ? c.display_name : "New message"}: ${row.body ? row.body.slice(0, 60) : "shared a bet"}`);
@@ -1986,13 +2006,16 @@ function renderChat() {
   }
   if (chatWith) return renderConvo();
   loadChats(Date.now() - chatsAt > 1500); loadFriends();
-  const list = chats || [], withChat = new Set(list.map(c => c.id));
-  const starters = (friends || []).filter(f => f.status === "accepted" && !withChat.has(f.id));
+  const withChat = new Set((chats || []).map(c => c.id));
+  const list = (chats || []).map(c => ({ at: c.last_at, html: chatRow(c) })).concat((groups || []).map(g => ({ at: g.last_at, html: groupRow(g) })))
+    .sort((a, b) => new Date(b.at) - new Date(a.at));
+  const mates = (friends || []).filter(f => f.status === "accepted"), starters = mates.filter(f => !withChat.has(f.id));
   $("#view").innerHTML = `
-    <div class="head" style="padding-top:18px"><div><div class="eyebrow">${unreadCount() ? plural(unreadCount(), "unread message") : "Your chats"}</div><h1>Chat</h1></div></div>
+    <div class="head" style="padding-top:18px"><div><div class="eyebrow">${unreadCount() ? plural(unreadCount(), "unread message") : "Your chats"}</div><h1>Chat</h1></div>
+      ${mates.length >= 2 ? `<button class="ghost" data-newgroup>👥 New group</button>` : ""}</div>
     ${chatsErr ? `<div class="glass card"><div class="err" style="margin:0">${esc(chatsErr)}</div></div>` : ""}
     ${!chats && !chatsErr ? `<div class="glass card"><div class="cap" style="margin:0">Loading your chats…</div></div>` : ""}
-    ${list.length ? `<div class="glass card flist">${list.map(chatRow).join("")}</div>` : ""}
+    ${list.length ? `<div class="glass card flist">${list.map(x => x.html).join("")}</div>` : ""}
     ${starters.length ? `<div class="section-h"><h2>Start a chat</h2></div><div class="glass card flist">${starters.map(f => friendRow(f, `<button class="btn sm sec" data-chat="${f.id}">Message</button>`)).join("")}</div>` : ""}
     ${chats && !list.length && friends && !starters.length ? `<div class="glass card fempty"><div class="soon-ic">💬</div><p>Chats are with friends. Add a friend first, then message them here.</p><button class="btn sec" data-nav="friends">Find friends</button></div>` : ""}`;
 }
@@ -2002,6 +2025,19 @@ function chatRow(c) {
     ${personAvatar(c.display_name, c.avatar_url, c.streak, t, 46, { badge: true })}
     <span class="fname"><b>${glowNameAs(c.display_name, t)}</b><small>${esc(preview)}</small></span>
     <span class="chat-meta"><small>${chatTime(c.last_at, true)}</small>${Number(c.unread) ? `<i>${c.unread}</i>` : ""}</span></button>`;
+}
+// A small stack of the first members' photos stands in for a group's picture.
+function groupAvatar(g, size) {
+  const others = (g.members || []).filter(m => m.id !== Cloud.user.id).slice(0, 2);
+  return `<div class="gav" style="--sz:${size}px">${others.map(m => personAvatar(m.name, m.avatar_url, m.streak, tierOf(m), Math.round(size * .66))).join("")}</div>`;
+}
+function groupRow(g) {
+  const who = g.last_kind === "event" ? "" : g.last_from_me ? "You: " : g.last_sender_name ? g.last_sender_name + ": " : "";
+  const preview = g.last_id ? who + (g.last_body || "🎟️ Shared a bet") : peopleText(Number(g.member_count));
+  return `<button class="frow chat-row ${Number(g.unread) ? "unread" : ""}" data-chat="g:${g.id}">
+    ${groupAvatar(g, 46)}
+    <span class="fname"><b>${esc(g.name)}</b><small>${esc(preview)}</small></span>
+    <span class="chat-meta"><small>${chatTime(g.last_at, true)}</small>${Number(g.unread) ? `<i>${g.unread}</i>` : ""}</span></button>`;
 }
 function chatTime(ts, short) {
   const d = new Date(ts), now = new Date(), same = d.toDateString() === now.toDateString();
@@ -2014,6 +2050,7 @@ function chatTime(ts, short) {
 function chatPartner(id) { return (chats || []).find(c => c.id === id) || (friends || []).find(f => f.id === id); }
 
 function renderConvo() {
+  if (isGroup(chatWith)) return renderGroupConvo();
   const p = chatPartner(chatWith), c = convos[chatWith];
   if (!c) loadConvo(chatWith);
   const t = p ? tierOf(p) : TIERS[0], isFriend = (friends || []).some(f => f.id === chatWith && f.status === "accepted");
@@ -2025,13 +2062,35 @@ function renderConvo() {
     </div>
     <div class="convo" id="convo"></div>
     <div class="composer" id="composer">
-      ${isFriend || !friends ? `<div class="cmp-bet" id="cmpBet" ${chatBet ? "" : "hidden"}></div>
-      <div class="cmp-row"><button class="cmp-ic" id="cmpShare" aria-label="Share a bet">🎟️</button>
-        <textarea id="cmpText" rows="1" maxlength="1000" placeholder="Message"></textarea>
-        <button class="cmp-send" id="cmpSend" aria-label="Send"><svg viewBox="0 0 24 24"><path d="M4 12 20 4l-6 16-3-7z"/></svg></button></div>`
+      ${isFriend || !friends ? composerHTML()
       : `<div class="cap" style="text-align:center;margin:0">You're not friends any more, so you can read this chat but not send new messages.</div>`}
     </div>`;
   renderConvoBody();
+  wireComposer();
+}
+function composerHTML() {
+  return `<div class="cmp-bet" id="cmpBet" ${chatBet ? "" : "hidden"}></div>
+      <div class="cmp-row"><button class="cmp-ic" id="cmpShare" aria-label="Share a bet">🎟️</button>
+        <textarea id="cmpText" rows="1" maxlength="1000" placeholder="Message"></textarea>
+        <button class="cmp-send" id="cmpSend" aria-label="Send"><svg viewBox="0 0 24 24"><path d="M4 12 20 4l-6 16-3-7z"/></svg></button></div>`;
+}
+function renderGroupConvo() {
+  const g = groupOf(chatWith), c = convos[chatWith];
+  if (!c) loadConvo(chatWith);
+  if (!g && groups) { chatWith = null; return renderChat(); }
+  const names = g ? (g.members || []).map(m => m.id === Cloud.user.id ? "You" : m.name).join(", ") : "";
+  $("#view").innerHTML = `
+    <div class="convo-head">
+      <button class="convo-back" data-chatback aria-label="Back to chats">‹</button>
+      <button class="fwho" data-groupinfo>${g ? groupAvatar(g, 40) : ""}
+        <span class="fname"><b>${g ? esc(g.name) : "Group"}</b><small>${esc(names)}</small></span></button>
+    </div>
+    <div class="convo group" id="convo"></div>
+    <div class="composer" id="composer">${composerHTML()}</div>`;
+  renderConvoBody();
+  wireComposer();
+}
+function wireComposer() {
   renderAttached();
   const ta = $("#cmpText");
   if (ta) {
@@ -2049,16 +2108,21 @@ function renderConvoBody(keepTop) {
   const prevH = document.documentElement.scrollHeight;
   let html = c.done ? "" : `<button class="linkbtn convo-older" data-chatolder>Show earlier messages</button>`, lastDay = "";
   if (!c.msgs.length) html += `<div class="cap convo-empty">Say hi 👋 or tap 🎟️ to share one of your bets.</div>`;
-  const lastMine = [...c.msgs].reverse().find(m => m.sender === me);
+  const lastMine = [...c.msgs].reverse().find(m => m.sender === me), group = isGroup(chatWith);
+  let prevSender = null;
   for (const m of c.msgs) {
     const day = new Date(m.created_at).toDateString();
     if (day !== lastDay) { html += `<div class="convo-day">${chatTime(m.created_at, true) === new Date(m.created_at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) ? "Today" : chatTime(m.created_at, true)}</div>`; lastDay = day; }
+    if (m.kind === "event") { html += `<div class="convo-note">${esc(m.body)}</div>`; prevSender = null; continue; }
     const mine = m.sender === me, rx = Object.entries(m.reactions || {});
-    html += `<div class="msg ${mine ? "mine" : "theirs"}" data-msg="${m.id}">
+    // In a group, each run of messages from someone else starts with their name.
+    const who = group && !mine && m.sender !== prevSender ? `<div class="msender">${m.sender_name ? glowNameAs(m.sender_name, tierOf({ tier_idx: m.sender_tier })) : "Someone who left"}</div>` : "";
+    prevSender = m.sender;
+    html += `<div class="msg ${mine ? "mine" : "theirs"}" data-msg="${m.id}">${who}
       <div class="bubble">${m.bet ? betCardHTML(m.bet) : ""}${m.body ? `<div class="mtext">${esc(m.body)}</div>` : ""}
         <span class="mtime">${new Date(m.created_at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}</span></div>
       ${rx.length ? `<div class="mrx">${rx.map(([u, e]) => `<span class="${u === me ? "me" : ""}">${e}</span>`).join("")}</div>` : ""}
-      ${m === lastMine && m.read_at ? `<div class="mseen">Seen</div>` : ""}</div>`;
+      ${!group && m === lastMine && m.read_at ? `<div class="mseen">Seen</div>` : ""}</div>`;
   }
   box.innerHTML = html; box.dataset.ready = "1";
   if (keepTop) scrollTo(0, document.documentElement.scrollHeight - prevH + scrollY);
@@ -2088,7 +2152,7 @@ async function sendChat() {
   sending = true; $("#cmpSend").disabled = true;
   const to = chatWith, bet = chatBet;
   try {
-    await Cloud.sendMessage(to, body, bet && bet.id);
+    if (isGroup(to)) await Cloud.sendGroupMessage(gidOf(to), body, bet && bet.id); else await Cloud.sendMessage(to, body, bet && bet.id);
     if (chatWith === to) { ta.value = ""; ta.style.height = "auto"; chatBet = null; renderAttached(); }
     const box = $("#convo"); if (box) box.dataset.ready = "";
     await loadConvo(to); loadChats(true);
@@ -2108,13 +2172,15 @@ document.addEventListener("click", async e => {
   if (t.closest("[data-chatback]")) { chatWith = null; chatBet = null; return render(); }
   if (t.closest("[data-unbet]")) { chatBet = null; return renderAttached(); }
   if (t.closest("[data-chatolder]")) return loadConvo(chatWith, true);
+  if (t.closest("[data-newgroup]")) return openNewGroup();
+  if (t.closest("[data-groupinfo]")) return openGroupInfo();
   const r = t.closest("[data-react]");
   if (r) {
     const msgEl = r.closest("[data-msg]"), id = Number(msgEl.dataset.msg), m = convos[chatWith].msgs.find(x => x.id === id);
     const emoji = r.dataset.react, prev = (m.reactions || {})[Cloud.user.id];
     m.reactions = { ...(m.reactions || {}) }; if (prev === emoji) delete m.reactions[Cloud.user.id]; else m.reactions[Cloud.user.id] = emoji;
     renderConvoBody();
-    try { await Cloud.chatReact(id, emoji); } catch (x) { toast(Cloud.nice(x), "bad"); }
+    try { await (isGroup(chatWith) ? Cloud.groupReact(id, emoji) : Cloud.chatReact(id, emoji)); } catch (x) { toast(Cloud.nice(x), "bad"); }
     return loadConvo(chatWith);
   }
   const b = t.closest(".msg .bubble");
@@ -2225,6 +2291,65 @@ document.addEventListener("click", async e => {
   renderFeedBody();
   try { await Cloud.feedReact(it.kind, it.ref_id, emoji); } catch (x) { toast(Cloud.nice(x), "bad"); loadFeed(); }
 });
+
+/* ---------- Group chats: starting one, and the group's info sheet ---------- */
+function openNewGroup() {
+  const mates = (friends || []).filter(f => f.status === "accepted").sort((a, b) => a.display_name.localeCompare(b.display_name)), picked = new Set();
+  const sh = openSheet(`<h3>New group</h3><div class="sub">Pick at least two friends. Anyone in the group can add their own friends later.</div>
+    <div class="field"><label for="ngName">Group name</label><input id="ngName" maxlength="40" placeholder="e.g. Sunday multis"></div>
+    <div class="pick-people">${mates.map(f => `<label class="pick-person"><input type="checkbox" value="${f.id}">${personAvatar(f.display_name, f.avatar_url, f.streak, tierOf(f), 36)}<span>${glowNameAs(f.display_name, tierOf(f))}</span></label>`).join("")}</div>
+    <div class="err" id="ngErr"></div><button class="btn" id="ngGo" disabled>Pick two friends</button>`);
+  const name = sh.querySelector("#ngName"), go = sh.querySelector("#ngGo");
+  const update = () => {
+    const n = picked.size, ok = n >= 2 && name.value.trim();
+    go.disabled = !ok; go.textContent = n < 2 ? (n ? "Pick one more friend" : "Pick two friends") : !name.value.trim() ? "Name the group" : `Start group with ${plural(n, "friend")}`;
+  };
+  sh.querySelectorAll(".pick-person input").forEach(cb => cb.onchange = () => { cb.checked ? picked.add(cb.value) : picked.delete(cb.value); update(); });
+  name.oninput = update;
+  go.onclick = async () => {
+    go.disabled = true; go.textContent = "Starting…";
+    try {
+      const id = await Cloud.groupCreate(name.value.trim(), [...picked]);
+      closeSheet(); await loadChats(true); openChat("g:" + id);
+    } catch (x) { sh.querySelector("#ngErr").textContent = Cloud.nice(x); update(); }
+  };
+}
+async function openGroupInfo() {
+  const id = chatWith, g = groupOf(id); if (!g) return;
+  let people = null, err = "", leaving = false;
+  const sh = openSheet(`<div id="giBody"></div>`);
+  const paint = () => {
+    const inGroup = new Set((people || g.members || []).map(p => p.id));
+    const addable = (friends || []).filter(f => f.status === "accepted" && !inGroup.has(f.id));
+    sh.querySelector("#giBody").innerHTML = `<h3>${esc(g.name)}</h3><div class="sub">${peopleText(inGroup.size)} in this group</div>
+      <div class="field"><label for="giName">Group name</label><div class="gi-rename"><input id="giName" maxlength="40" value="${esc(g.name)}"><button class="btn sm sec" id="giSave">Save</button></div></div>
+      <div class="flist gi-list">${(people || []).map(p => `<div class="frow"><button class="fwho" ${p.id === Cloud.user.id ? "" : p.is_friend ? `data-gifriend="${p.id}"` : ""}>${personAvatar(p.display_name, p.avatar_url, p.streak, tierOf(p), 40, { badge: true })}
+        <span class="fname"><b>${glowNameAs(p.display_name, tierOf(p))}</b><small>${p.id === Cloud.user.id ? "You" : friendLine(p)}</small></span></button></div>`).join("") || `<div class="cap">Loading…</div>`}</div>
+      ${addable.length && inGroup.size < 20 ? `<div class="section-h"><h2>Add your friends</h2></div><div class="flist gi-list">${addable.map(f => friendRow(f, `<button class="btn sm" data-giadd="${f.id}">Add</button>`)).join("")}</div>` : ""}
+      <div class="err" id="giErr">${esc(err)}</div>
+      <button class="btn warn" id="giLeave">${leaving ? "Tap again to leave the group" : "Leave group"}</button>`;
+    sh.querySelector("#giSave").onclick = async () => {
+      const v = sh.querySelector("#giName").value.trim(); if (!v || v === g.name) return;
+      try { await Cloud.groupRename(gidOf(id), v); g.name = v; err = ""; toast("Group renamed."); await loadChats(true); loadConvo(id); if (chatWith === id) renderConvo(); paint(); }
+      catch (x) { err = Cloud.nice(x); paint(); }
+    };
+    sh.querySelectorAll("[data-giadd]").forEach(b => b.onclick = async () => {
+      b.disabled = true;
+      try { await Cloud.groupAdd(gidOf(id), b.dataset.giadd); err = ""; people = await Cloud.groupPeople(gidOf(id)); await loadChats(true); loadConvo(id); }
+      catch (x) { err = Cloud.nice(x); }
+      paint();
+    });
+    sh.querySelectorAll("[data-gifriend]").forEach(b => b.onclick = () => { const p = people.find(x => x.id === b.dataset.gifriend); closeSheet(); openFriend(p); });
+    sh.querySelector("#giLeave").onclick = async () => {
+      if (!leaving) { leaving = true; return paint(); }
+      try { await Cloud.groupLeave(gidOf(id)); closeSheet(); delete convos[id]; chatWith = null; groups = (groups || []).filter(x => "g:" + x.id !== id); toast(`You left ${g.name}.`); render(); loadChats(true); }
+      catch (x) { err = Cloud.nice(x); paint(); }
+    };
+  };
+  paint();
+  try { people = await Cloud.groupPeople(gidOf(id)); } catch (x) { err = Cloud.nice(x); }
+  paint();
+}
 
 /* =========================================================
    Boot

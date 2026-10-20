@@ -592,6 +592,21 @@ body.in-convo .topbar { display: none; }
 .feed-pick button { border: 0; background: none; font-size: 24px; width: 40px; height: 40px; border-radius: 50%; cursor: pointer; }
 .feed-pick button.on { background: color-mix(in srgb, var(--accent) 25%, transparent); }
 .feed-more { width: 100%; margin-top: 4px; }
+/* Group chats */
+.gav { position: relative; width: var(--sz); height: var(--sz); flex: 0 0 auto; }
+.gav .avatar { position: absolute; }
+.gav .avatar:first-child { top: 0; left: 0; }
+.gav .avatar:nth-child(2) { right: 0; bottom: 0; box-shadow: 0 0 0 2px var(--bg); border-radius: 50%; }
+.gav .avatar:only-child { inset: 0; margin: auto; }
+.convo-note { align-self: center; max-width: 85%; text-align: center; font-size: 12px; color: var(--muted); padding: 4px 10px; border-radius: 99px; background: var(--field); margin: 6px 0; }
+.msender { font-size: 12px; font-weight: 700; margin: 6px 0 2px 4px; }
+.msender .glowname.g-flame { animation: none; } .msender .glowname.g-cosmic { filter: none; }
+.pick-people { display: grid; gap: 6px; max-height: 46vh; overflow-y: auto; margin-bottom: 12px; }
+.pick-person { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 12px; background: var(--field); border: 1px solid var(--stroke); cursor: pointer; }
+.pick-person input { width: 20px; height: 20px; accent-color: var(--accent); }
+.pick-person:has(input:checked) { border-color: var(--accent); }
+.gi-rename { display: flex; gap: 8px; } .gi-rename input { flex: 1; min-width: 0; }
+.gi-list { margin-bottom: 12px; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
