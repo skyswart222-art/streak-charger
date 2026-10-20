@@ -1,4 +1,4 @@
-# Streak Charger
+# Pipe Dream
 
 A phone-first compound bet streak tracker. Every bet stakes the whole balance, wins roll over and a loss resets the run. Accounts, data and profile photos live in Supabase, and the site is hosted as static files on Vercel. There is no build step.
 

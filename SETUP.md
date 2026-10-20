@@ -1,4 +1,4 @@
-# Putting Streak Charger online
+# Putting Pipe Dream online
 
 This guide takes you from these files to a live app at your own web address, with accounts that sync across your phone and computer. It takes about 30 minutes, everything is free, and you don't need to install anything.
 
@@ -116,7 +116,7 @@ Before you open the app to lots of people, turn it back on and set up a proper e
 
    If data was already saved on the device under the new address, the app asks once whether to import it. Importing twice is safe, because nothing gets duplicated.
 5. Tap your photo, then the 📷 button, to add a profile picture.
-6. To install it like an app on iPhone: open it in Safari, tap **Share**, then **Add to Home Screen**. It gets the Streak Charger icon and opens full screen, without Safari's address bar.
+6. To install it like an app on iPhone: open it in Safari, tap **Share**, then **Add to Home Screen**. It gets the Pipe Dream name and icon and opens full screen, without Safari's address bar.
 
 ---
 
