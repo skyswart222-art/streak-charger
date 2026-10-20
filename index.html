@@ -709,11 +709,10 @@ html { touch-action: manipulation; -webkit-text-size-adjust: 100%; text-size-adj
    too high. Making every page at least screen height keeps it at the real bottom (--screen-h is set in JS). */
 .app { box-sizing: border-box; min-height: var(--screen-h, 0px); }
 
-/* Top bar: a clean, full-width strip in the page colour, so the background glow doesn't show
-   through as a hazy band or a strip down the right edge. A hairline appears once you scroll. */
+/* Top bar: solid page colour out to both screen edges and well above, so no background glow
+   shows behind it, even when the page is pulled down. The shadow fills the sides without widening the page. */
 .topbar { background: none; isolation: isolate; }
-.topbar::before { content: ""; position: absolute; z-index: -1; top: 0; bottom: 0; left: 50%; width: 100vw; transform: translateX(-50%); background: var(--bg); border-bottom: 1px solid transparent; transition: border-color .2s; }
-body.scrolled .topbar::before { border-bottom-color: var(--stroke); }
+.topbar::before { content: ""; position: absolute; z-index: -1; inset: 0; background: var(--bg); box-shadow: 0 0 0 100vmax var(--bg); clip-path: inset(-100vmax -100vmax 0 -100vmax); }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }

@@ -2666,9 +2666,6 @@ function fitScreen() {
 fitScreen();
 addEventListener("resize", fitScreen);
 
-// A thin line under the top bar once the page is scrolled.
-addEventListener("scroll", () => document.body.classList.toggle("scrolled", scrollY > 4), { passive: true });
-
 /* =========================================================
    Boot
    ========================================================= */
