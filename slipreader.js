@@ -1,4 +1,4 @@
-/* Streak Charger bet-slip reader. Reads a screenshot on the phone itself with Tesseract
+/* Pipe Dream bet-slip reader. Reads a screenshot on the phone itself with Tesseract
    (files in ocr/, loaded on first use), then picks out the odds, stake, sport and selection
    with plain rules. Nothing is uploaded anywhere. */
 (function () {

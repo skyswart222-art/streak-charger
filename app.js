@@ -1,4 +1,4 @@
-/* Streak Charger app: tracker logic, screens and animations. Saving goes through cloud.js. */
+/* Pipe Dream app: tracker logic, screens and animations. Saving goes through cloud.js. */
 (() => {
 "use strict";
 
@@ -1331,6 +1331,7 @@ function fx(html, ms, cls = "") {
   const el = document.createElement("div"); el.className = "fx " + cls; el.innerHTML = html;
   document.body.appendChild(el); setTimeout(() => el.remove(), ms); return el;
 }
+const LOSS_QUIPS = ["Back on the tools 🔧", "Chopper left without you 🚁", "Another swing it is 🛢️", "Pipe dream, mate. Go again 🔧"];
 function runAnim(a, s, ring) {
   const goRing = (frac, opt) => requestAnimationFrame(() => requestAnimationFrame(() => setRing(ring, frac, opt)));
   if (a.type === "win") {
@@ -1340,10 +1341,11 @@ function runAnim(a, s, ring) {
     goRing(s.frac, { duration: 1.1, delay: .35 });
     setTimeout(() => ring.classList.add(newTier || hit ? "surge-big" : "surge"), 380);
     if (newTier) setTimeout(() => tierBurst(a.after.tier), 900);
-    if (hit) setTimeout(() => confetti(["#f5c518", "#ffe27a", "#e8a90c", "#fff3b0", "#c99700"], 240), newTier ? 2800 : 900);
+    if (hit) setTimeout(() => { confetti(["#f5c518", "#ffe27a", "#e8a90c", "#fff3b0", "#c99700"], 240); toast("🚁 Chopper's here. You're off the rig!"); }, newTier ? 2800 : 900);
   } else if (a.type === "loss") {
     crack();
     goRing(s.frac, { duration: 1.5, delay: 1 });
+    setTimeout(() => toast(LOSS_QUIPS[Math.floor(Math.random() * LOSS_QUIPS.length)]), 1400);
   } else if (a.type === "pending") {
     const rk = a.risk;
     fx(`<div class="glass-fx" style="--rc:${rk ? rk.c : "var(--pend)"}"><div class="hg">⏳</div>${rk ? `<div class="rk">${rk.sym} ${rk.name}</div>` : ""}</div>`, 1700);
@@ -1507,8 +1509,8 @@ function renderAuth(mode = "login", note = "") {
   $("#view").innerHTML = `
     <div class="auth">
       <div class="auth-logo">${ringSVG({ tier: TIERS[3], frac: .72, total: 23, streak: 17, reached: false })}<span>⚡</span></div>
-      <h1>Streak Charger</h1>
-      <p class="sub" style="text-align:center">Your compound bet tracker, now with an account that syncs across your devices.</p>
+      <h1>Pipe Dream</h1>
+      <p class="sub" style="text-align:center">The offshore crew's get-rich-quick scheme. Stack the wins, buy the last chopper off the rig. 🛢️🚁</p>
       <div class="glass card">
         <div class="seg" style="margin-bottom:16px"><button data-am="login" class="${signup ? "" : "on"}">Log in</button><button data-am="signup" class="${signup ? "on" : ""}">Sign up</button></div>
         ${note ? `<div class="okmsg">${note}</div>` : ""}
@@ -1568,7 +1570,7 @@ function openNewPassword() {
 function renderSetupNeeded() {
   signedOut(true);
   $("#view").innerHTML = `<div class="auth"><h1>Almost ready</h1>
-    <div class="glass card"><p style="margin-top:0">This copy of Streak Charger isn't connected to a database yet, so accounts and syncing are off.</p>
+    <div class="glass card"><p style="margin-top:0">This copy of Pipe Dream isn't connected to a database yet, so accounts and syncing are off.</p>
     <p class="cap">Open <b>config.js</b> and paste in your Supabase Project URL and anon key. The setup guide (SETUP.md) walks you through it.</p>
     <button class="btn sec" id="useLocal">Use it on this device for now</button></div></div>`;
   $("#useLocal").onclick = () => { localMode = true; state = deviceState() || freshState(); startApp(); };
@@ -1891,7 +1893,7 @@ function renderLeaders() {
   const outside = meRow && !top.includes(meRow);
   const lonely = boardScope === "friends" && rows.length === 1;
   $("#view").innerHTML = `${leadNav()}
-    <div class="head" style="padding-top:18px"><div><div class="eyebrow">${boardScope === "friends" ? "You and your friends" : "Everyone on Streak Charger"}</div><h1>Leaderboard</h1></div></div>
+    <div class="head" style="padding-top:18px"><div><div class="eyebrow">${boardScope === "friends" ? "You and your friends" : "Everyone on Pipe Dream"}</div><h1>Leaderboard</h1></div></div>
     <div class="seg" style="margin-bottom:10px">${[["friends", "Friends"], ["everyone", "Everyone"]].map(([k, n]) => `<button data-bscope="${k}" class="${boardScope === k ? "on" : ""}">${n}</button>`).join("")}</div>
     <div class="lb-metrics">${BOARD_METRICS.map(([k, n]) => `<button data-bmetric="${k}" class="${boardMetric === k ? "on" : ""}">${n}</button>`).join("")}</div>
     ${b.err ? `<div class="glass card"><div class="err" style="margin:0">${esc(b.err)}</div></div>` : ""}
