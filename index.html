@@ -630,6 +630,15 @@ body.in-convo .topbar { display: none; }
 .ch-score b { font-family: var(--display); font-size: 22px; display: block; }
 .ch-score small { color: var(--muted); font-size: 11px; }
 
+/* Log a bet button dressed for each unlockable theme */
+:root[data-skin="wolf"] .fab:not(:disabled) { background: linear-gradient(135deg, #f1f6ff, #a9bddb 60%, #7f95b8); color: #0d1424; box-shadow: 0 10px 30px -10px rgba(170,200,255,.7), inset 0 1px 0 rgba(255,255,255,.8); }
+:root[data-skin="unstoppable"] .fab:not(:disabled) { background: linear-gradient(135deg, #ffb341, #ff5a1f 45%, #c4161c); color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.35); box-shadow: 0 10px 34px -10px #ff4a1a, inset 0 1px 0 rgba(255,220,160,.6); }
+:root[data-skin="comet"] .fab:not(:disabled) { background: linear-gradient(135deg, #7ee0ff, #5b7cff 55%, #7a4dff); color: #fff; text-shadow: 0 1px 2px rgba(0,0,30,.35); box-shadow: 0 10px 34px -10px #5b7cff, inset 0 1px 0 rgba(255,255,255,.5); }
+:root[data-skin="legend"] .fab:not(:disabled) { background: linear-gradient(110deg, #9c6b14, #ffe08a 30%, #c99526 50%, #fff0b8 68%, #a8751a) 0 0 / 220% 100%; color: #2a1d05; box-shadow: 0 10px 34px -10px #ffcf4a, inset 0 1px 0 rgba(255,250,220,.9); animation: foil 6s ease-in-out infinite; }
+:root[data-skin="immortal"] .fab:not(:disabled) { background: linear-gradient(120deg, #6b35ff, #ff4fd8 35%, #38e1ff 70%, #6b35ff) 0 0 / 250% 100%; color: #fff; text-shadow: 0 1px 3px rgba(20,0,40,.45); box-shadow: 0 10px 36px -10px #b04dff, inset 0 1px 0 rgba(255,255,255,.45); animation: foil 9s linear infinite; }
+@keyframes foil { 0%, 100% { background-position: 0 0; } 50% { background-position: 100% 0; } }
+@media (prefers-reduced-motion: reduce) { .fab { animation: none !important; } }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
   .stamp, .x-mark, .glass-fx .hg, .glass-fx .rk, .tierburst { animation: fadeQuick 1.2s forwards !important; }
@@ -649,6 +658,7 @@ body.in-convo .topbar { display: none; }
 <script src="config.js"></script>
 <script src="supabase.js"></script>
 <script src="cloud.js"></script>
+<script src="slipreader.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

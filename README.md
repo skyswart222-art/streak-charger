@@ -16,6 +16,8 @@ A phone-first compound bet streak tracker. Every bet stakes the whole balance, w
 | `supabase.js` | Supabase JavaScript client v2.117.2, bundled so nothing loads from other sites |
 | `vercel.json` | Cache and security headers |
 | `manifest.webmanifest`, `apple-touch-icon.png`, `icon-192.png`, `icon-512.png`, `favicon-32.png` | The app icon and Home Screen settings |
+| `slipreader.js` | Fills in a bet from a bet slip screenshot. It reads the image on the phone and picks out the odds, sport and bet |
+| `ocr/` | Tesseract.js 5.1.1 text recognition and its English data (Apache 2.0), bundled and only downloaded the first time someone scans a slip |
 
 ## Navigation
 
@@ -23,5 +25,5 @@ The bottom bar has Home, Stats, Friends, Leaders and Chat. Home switches between
 
 ## Known limits
 
-- **Screenshot bet-slip reader:** it used Claude's artifact runtime, so it hides itself here. It needs an AI API key and a small server function, planned for a later stage.
+- **Screenshot bet-slip reader:** it reads text with plain rules, not AI, so odds and stake are reliable but the sport and the bet description are best guesses to check. Nothing leaves the phone.
 - **Streaks come from logged bets:** the database works out everyone's live streak, best streak and banked total from their logged bets, so nobody can type a number in. The bets themselves are still self-reported.

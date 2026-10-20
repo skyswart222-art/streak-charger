@@ -105,7 +105,6 @@ function save() {
   catch (e) { if (storageOk) toast("This browser isn't letting the app save. Changes will be lost when you close it."); storageOk = false; }
 }
 let state = null;
-const samplePromise = (window.claude && window.claude.use) ? window.claude.use("sample").catch(() => null) : Promise.resolve(null);
 try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch (e) {}
 
 /* =========================================================
@@ -1195,7 +1194,7 @@ function openNewBet(t) {
   const sh = openSheet(`
     <h3>Log a bet</h3>
     <div class="sub">Stakes the whole balance of ${money(s.balance)}.</div>
-    <div class="scan" id="scanRow" hidden><button class="btn sec" id="scanBtn" style="width:auto">📷 Fill from screenshot</button><span class="s" id="scanMsg">Upload your bet slip and Claude fills in the details.</span><input type="file" id="scanFile" accept="image/*" hidden></div>
+    <div class="scan" id="scanRow" hidden><button class="btn sec" id="scanBtn" style="width:auto">📷 Fill from screenshot</button><span class="s" id="scanMsg">Pick a screenshot of your bet slip and the app fills in the details.</span><input type="file" id="scanFile" accept="image/*" hidden></div>
     <div class="field"><label for="nOdds">Decimal odds</label><input id="nOdds" inputmode="decimal" placeholder="e.g. 1.85" autocomplete="off"></div>
     <div class="field" id="nSportWrap"><label for="nSport">Sport</label><input id="nSport" placeholder="Start typing, e.g. crick" autocomplete="off"><span class="picked"></span></div>
     <div class="field"><label for="nText">Bet</label><input id="nText" maxlength="60" placeholder="e.g. Storm to win" autocomplete="off"></div>
@@ -1228,47 +1227,30 @@ function openNewBet(t) {
 }
 
 /* ---------- Bet slip screenshot reader ---------- */
-async function setupScan(sh, picker, balance) {
-  const sample = await samplePromise;
-  if (!sample || !sh.isConnected) return;
-  const lim = await sample.limits().catch(() => null);
-  if (!lim || !lim.images) return;
+function setupScan(sh, picker, balance) {
+  if (!window.SlipReader) return;
   const row = sh.querySelector("#scanRow"), btn = sh.querySelector("#scanBtn"), file = sh.querySelector("#scanFile"), msg = sh.querySelector("#scanMsg");
-  file.accept = lim.images.mediaTypes.join(",");
   row.hidden = false;
   btn.onclick = () => file.click();
   file.onchange = async () => {
     const f = file.files && file.files[0]; file.value = "";
     if (!f) return;
-    row.classList.add("busy"); btn.disabled = true; msg.textContent = "Reading your bet slip…";
-    const prompt = `The image is a screenshot of a bet slip from a bookmaker app. Read the bet and reply with only a JSON object:
-{"odds": number, "sport": string, "text": string, "link": string|null, "stake": number|null, "found": boolean}
-Rules:
-- odds: the DECIMAL odds for the whole bet. Convert fractional (5/4 -> 2.25) or American (+150 -> 2.5, -200 -> 1.5) odds. For a multi or parlay use the combined total odds.
-- sport: exactly one of: ${SPORTS.map(x => x.name).join(", ")}, Other. Pick the closest match (NRL -> Rugby League, EPL -> Soccer, UFC -> MMA, F1 -> Formula 1). Use Other if none fits.
-- text: a short description of the selection in under 40 characters, like "Storm to win" or "Arsenal & Chelsea multi".
-- link: a URL only if one is printed in the image, else null.
-- stake: the stake amount shown, as a number, else null.
-- found: false if the image is not a bet slip or the odds can't be read.`;
+    row.classList.add("busy"); btn.disabled = true;
+    const stage = { prep: "Reading your bet slip…", load: "Getting the slip reader ready. The first time takes a few seconds…", read: "Reading your bet slip…" };
     try {
-      const r = await sample.json(prompt, { images: f, modelTier: "default" });
+      const r = await SlipReader.read(f, k => { if (sh.isConnected) msg.textContent = stage[k]; });
       if (!sh.isConnected) return;
-      if (!r || r.found === false || !(Number(r.odds) > 1)) { msg.textContent = "Couldn't find a bet on that image. Try a clearer screenshot of the slip."; return; }
-      sh.querySelector("#nOdds").value = Math.round(Number(r.odds) * 1000) / 1000;
+      if (!r || !r.found || !(r.odds > 1)) { msg.textContent = "Couldn't find the odds on that image. Try a screenshot of just the slip, or type it in."; return; }
+      sh.querySelector("#nOdds").value = r.odds;
       sh.querySelector("#nOdds").dispatchEvent(new Event("input"));
-      if (r.sport) picker.set(SPORT_NAMES.has(String(r.sport)) ? String(r.sport) : "Other");
-      if (r.text) sh.querySelector("#nText").value = String(r.text).slice(0, 60);
-      if (r.link && /^https?:\/\//i.test(String(r.link))) sh.querySelector("#nLink").value = String(r.link);
+      if (r.sport && SPORT_NAMES.has(r.sport)) picker.set(r.sport);
+      if (r.text) sh.querySelector("#nText").value = r.text.slice(0, 60);
+      const miss = [!r.sport && "sport", !r.text && "bet"].filter(Boolean);
       const st = Number(r.stake);
-      msg.innerHTML = "✅ Filled in. Check the details, then tap <b>Log bet</b>." + (st > 0 && Math.abs(st - balance) / balance > 0.01 ? ` The slip shows a ${esc(money(st))} stake, but the tracker stakes ${esc(money(balance))}.` : "");
+      msg.innerHTML = "✅ Filled in. Check the details, then tap <b>Log bet</b>." + (miss.length ? ` Add the ${miss.join(" and ")} yourself.` : "") + (st > 0 && Math.abs(st - balance) / balance > 0.01 ? ` The slip shows a ${esc(money(st))} stake, but the tracker stakes ${esc(money(balance))}.` : "");
     } catch (e) {
       if (!sh.isConnected) return;
-      const c = e && e.code;
-      if (c === "not_granted" || c === "sampling_disabled" || c === "images_unavailable" || c === "not_declared" || c === "capability_disabled" || c === "capability_removed") { row.hidden = true; return; }
-      msg.textContent = c === "rate_limited" ? "Too many reads right now. Try again in a bit, or type it in."
-        : c === "image_rejected" ? "That file couldn't be read. Try a PNG or JPG screenshot."
-        : c === "invalid_json" ? "Couldn't make sense of that slip. Try again or type it in."
-        : c === "cancelled" ? "Stopped." : "Something went wrong reading the slip. Try again or type it in.";
+      msg.textContent = e && e.code === "image_rejected" ? "That file couldn't be opened. Try a PNG or JPG screenshot." : "The slip reader couldn't load. Check your connection and try again, or type it in.";
     } finally { row.classList.remove("busy"); btn.disabled = false; }
   };
 }
@@ -1679,6 +1661,7 @@ function renderProfile() {
       <h1>${glowName(me.display_name)}</h1>
       <div class="sub" style="margin:0">${tierBadge(b.tier, undefined, false)} ${b.streak ? `${plural(b.streak, "win")} in a row on ${esc(b.t.name)}` : "No live streak yet"}</div>
       <div class="sub" id="pWins" style="margin:4px 0 0"></div>
+      <button class="btn sec" id="pShare" style="width:auto;margin-top:12px;padding-inline:20px">📤 Share my stats</button>
       <div class="err" id="avErr" style="margin-top:6px"></div>
     </div>
     <div class="glass card">
@@ -1707,10 +1690,29 @@ function renderProfile() {
     try { if (!(await Cloud.nameAvailable(v))) throw new Error("That display name is taken."); me = await Cloud.updateProfile({ display_name: v }); render(); toast("Name saved."); }
     catch (x) { h.textContent = Cloud.nice(x); h.className = "hint bad"; }
   };
+  $("#pShare").onclick = shareStats;
   $("#bkCopy").onclick = copyBackup;
   $("#bkRestore").onclick = openRestore;
   if ($("#imDevice")) $("#imDevice").onclick = () => importData(device, "device");
   $("#signOut").onclick = async () => { await Cloud.signOut(); state = null; me = null; renderAuth("login", "You're logged out."); };
+}
+// A short summary of your best live tracker for a group chat: the phone's share sheet,
+// or the clipboard where there isn't one.
+function statsText() {
+  const b = liveBest(), s = compute(b.t), lines = [`⚡ ${me.display_name} on ${document.title}`];
+  lines.push(`${b.tier.sym} ${b.tier.name} · ${b.streak ? plural(b.streak, "win") + " in a row" : "no live streak yet"}`);
+  lines.push(s.reached ? `🎯 Target hit: ${money(s.balance)}` : `💰 ${money(s.balance)} of ${money(b.t.target)} · ${plural(s.remaining, "win")} to go`);
+  const banked = state.trackers.reduce((n, t) => n + compute(t).banked, 0);
+  lines.push(`🏆 Best streak ${state.bestStreak || 0}` + (banked > 0 ? ` · 🏦 Banked ${money(banked)}` : ""));
+  if (s.pendingBet) lines.push(`⏳ Riding on: ${s.pendingBet.text} @ ${odds2(s.pendingBet.odds)}`);
+  lines.push(location.origin);
+  return lines.join("\n");
+}
+async function shareStats() {
+  const text = statsText();
+  if (navigator.share) { try { await navigator.share({ text }); return; } catch (e) { if (e && e.name === "AbortError") return; } }
+  try { await navigator.clipboard.writeText(text); toast("Stats copied. Paste them into your group chat."); }
+  catch (e) { const sh = openSheet(`<h3>Your stats</h3><div class="sub">Select this text and copy it.</div><div class="field"><textarea readonly style="min-height:150px">${esc(text)}</textarea></div>`); sh.querySelector("textarea").select(); }
 }
 function syncLabel() { return { saved: "✓ synced to your account", saving: "saving…", offline: "offline, will sync when you're back", error: "sync problem" }[syncState] || ""; }
 
