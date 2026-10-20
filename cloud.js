@@ -195,7 +195,23 @@ function onChat(cb) {
       .subscribe();
   } catch (e) { chatChannel = null; }
 }
-function offChat() { if (chatChannel) { try { sb.removeChannel(chatChannel); } catch (e) {} chatChannel = null; } }
+// "Typing…" pings go over a private broadcast channel for one chat. Nothing is stored, and the
+// database only lets the two friends (or the group's members) join it.
+let typingCh = null, typingAt = null;
+function typingJoin(topic, cb) {
+  typingLeave();
+  if (!sb.channel || !user) return;
+  try {
+    typingAt = topic;
+    typingCh = sb.channel(topic, { config: { private: true, broadcast: { self: false } } })
+      .on("broadcast", { event: "typing" }, m => { const p = m && m.payload; if (p && p.id !== user.id) cb(p); })
+      .subscribe();
+  } catch (e) { typingCh = null; }
+}
+function typingSend(on) { if (typingCh) try { typingCh.send({ type: "broadcast", event: "typing", payload: { id: user.id, on: !!on } }); } catch (e) {} }
+function typingLeave() { if (typingCh) { try { sb.removeChannel(typingCh); } catch (e) {} } typingCh = null; typingAt = null; }
+const typingTopic = () => typingAt;
+function offChat() { typingLeave(); if (chatChannel) { try { sb.removeChannel(chatChannel); } catch (e) {} chatChannel = null; } }
 
 /* ---------- Loading ---------- */
 async function fetchAll() {
@@ -254,6 +270,6 @@ addEventListener("online", () => latest && flush());
 addEventListener("pagehide", () => { if (latest) flush(); });
 
 window.Cloud = { configured, currentUser, onAuth, nameAvailable, signUp, signIn, signOut, resetPassword, setPassword,
-  getProfile, updateProfile, uploadAvatar, searchProfiles, myFriends, friendRequest, friendRespond, friendRemove, leaderboard, myChats, chatMessages, chatMarkRead, chatReact, feed, feedReact, sendMessage, uploadChatMedia, uploadSlip, mediaUrl, myGroups, groupMessages, groupMarkRead, groupReact, groupCreate, groupAdd, groupRename, groupLeave, groupPeople, sendGroupMessage, myChallenges, challengeCreate, challengeRespond, challengeWins, onChat, offChat, load, fetchAll, prime, merge, readCache, writeCache, queue, flush, pending, nice,
+  getProfile, updateProfile, uploadAvatar, searchProfiles, myFriends, friendRequest, friendRespond, friendRemove, leaderboard, myChats, chatMessages, chatMarkRead, chatReact, feed, feedReact, sendMessage, uploadChatMedia, uploadSlip, mediaUrl, myGroups, groupMessages, groupMarkRead, groupReact, groupCreate, groupAdd, groupRename, groupLeave, groupPeople, sendGroupMessage, myChallenges, challengeCreate, challengeRespond, challengeWins, onChat, offChat, typingJoin, typingSend, typingLeave, typingTopic, load, fetchAll, prime, merge, readCache, writeCache, queue, flush, pending, nice,
   get user() { return user; }, set onStatus(f) { onStatus = f; }, set onRejected(f) { onRejected = f; } };
 })();

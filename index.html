@@ -741,6 +741,14 @@ html { touch-action: manipulation; -webkit-text-size-adjust: 100%; text-size-adj
 .vis-row b { display: block; font-size: 14px; }
 .vis-row small { display: block; margin-top: 2px; font-size: 12px; color: var(--muted); line-height: 1.35; }
 
+/* "Typing…" bubble above the composer */
+.typing { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 13px; color: var(--muted); }
+.tdots { display: inline-flex; gap: 3px; padding: 7px 9px; border-radius: 999px; background: var(--field); border: 1px solid var(--stroke); }
+.tdots i { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); animation: tdot 1.2s infinite ease-in-out; }
+.tdots i:nth-child(2) { animation-delay: .15s; } .tdots i:nth-child(3) { animation-delay: .3s; }
+@keyframes tdot { 0%, 60%, 100% { opacity: .35; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-3px); } }
+@media (prefers-reduced-motion: reduce) { .tdots i { animation: none; } }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
   .stamp, .x-mark, .glass-fx .hg, .glass-fx .rk, .tierburst { animation: fadeQuick 1.2s forwards !important; }

@@ -1201,3 +1201,31 @@ begin
 end $$;
 drop trigger if exists bets_guard_slip on public.bets;
 create trigger bets_guard_slip before insert or update of slip on public.bets for each row execute function public.guard_bet_slip();
+
+-- =========================================================
+-- Stage 11: "typing…" in chats
+-- =========================================================
+-- Typing pings go over private Realtime broadcast channels and are never stored. A channel is
+-- "typing:dm:<id>:<id>" for two friends (ids sorted) or "typing:g:<group id>" for a group.
+-- Only the two friends, or the group's members, may join or send on it.
+create or replace function public.can_use_typing(topic text) returns boolean
+language sql stable security definer set search_path = public as $$
+  select auth.uid() is not null and case
+    when topic ~ '^typing:dm:[0-9a-f-]{36}:[0-9a-f-]{36}$' then
+      auth.uid()::text in (split_part(topic, ':', 3), split_part(topic, ':', 4))
+      and public.are_friends(split_part(topic, ':', 3)::uuid, split_part(topic, ':', 4)::uuid)
+    when topic ~ '^typing:g:[0-9]{1,18}$' then public.is_group_member(split_part(topic, ':', 3)::bigint, auth.uid())
+    else false end;
+$$;
+revoke all on function public.can_use_typing(text) from public, anon;
+grant execute on function public.can_use_typing(text) to authenticated;
+
+do $$
+begin
+  if to_regclass('realtime.messages') is not null then
+    execute 'drop policy if exists "typing listen" on realtime.messages';
+    execute 'create policy "typing listen" on realtime.messages for select to authenticated using (realtime.messages.extension = ''broadcast'' and public.can_use_typing((select realtime.topic())))';
+    execute 'drop policy if exists "typing send" on realtime.messages';
+    execute 'create policy "typing send" on realtime.messages for insert to authenticated with check (realtime.messages.extension = ''broadcast'' and public.can_use_typing((select realtime.topic())))';
+  end if;
+end $$;
