@@ -15,6 +15,7 @@ A phone-first compound bet streak tracker. Every bet stakes the whole balance, w
 | `schema.sql` | Tables, security rules, the photo bucket, streak calculation, friends, the leaderboard, chat, group chats, the feed and challenges. Paste it into the Supabase SQL Editor. Safe to re-run, and re-run it whenever it changes. |
 | `supabase.js` | Supabase JavaScript client v2.117.2, bundled so nothing loads from other sites |
 | `vercel.json` | Cache and security headers |
+| `manifest.webmanifest`, `apple-touch-icon.png`, `icon-192.png`, `icon-512.png`, `favicon-32.png` | The app icon and Home Screen settings |
 
 ## Navigation
 

@@ -58,7 +58,7 @@ You'll paste these two values into the app in step 5.
 5. Choose the app's files:
    - **On iPhone:** tap **choose your files**, then **Browse** to open the Files app. Go to the unzipped `streak-charger-app` folder, tap **Select** in the top right, tap **Select All**, then tap **Open**. (If you haven't unzipped it yet: save the zip to the Files app, then tap the zip once, and Files makes the folder for you.)
    - **On a computer:** unzip `streak-charger-app.zip`, open the folder, select everything inside it and drag it into the GitHub page.
-6. Check that all 9 files are listed: `index.html`, `app.js`, `cloud.js`, `supabase.js`, `config.js`, `schema.sql`, `vercel.json`, `README.md` and `SETUP.md`. Then tap **Commit changes** at the bottom.
+6. Check that all 14 files are listed: `index.html`, `app.js`, `cloud.js`, `supabase.js`, `config.js`, `schema.sql`, `vercel.json`, `manifest.webmanifest`, the four icon `.png` files, `README.md` and `SETUP.md`. Then tap **Commit changes** at the bottom.
 
 ## Step 5: Paste your keys into `config.js`
 
@@ -116,7 +116,7 @@ Before you open the app to lots of people, turn it back on and set up a proper e
 
    If data was already saved on the device under the new address, the app asks once whether to import it. Importing twice is safe, because nothing gets duplicated.
 5. Tap your photo, then the 📷 button, to add a profile picture.
-6. To install it like an app on iPhone: open it in Safari, tap **Share**, then **Add to Home Screen**.
+6. To install it like an app on iPhone: open it in Safari, tap **Share**, then **Add to Home Screen**. It gets the Streak Charger icon and opens full screen, without Safari's address bar.
 
 ---
 
