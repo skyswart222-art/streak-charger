@@ -142,6 +142,10 @@ const groupAdd = (g, target) => rpc("group_add", { g, target });
 const groupRename = (g, name) => rpc("group_rename", { g, name });
 const groupLeave = g => rpc("group_leave", { g });
 const groupPeople = g => rpc("group_people", { g });
+const myChallenges = () => rpc("my_challenges");
+const challengeCreate = (title, members, days) => rpc("challenge_create", { title, members, days });
+const challengeRespond = (c, accept) => rpc("challenge_respond", { c, accept });
+const challengeWins = uid => rpc("challenge_wins", { uid });
 const feed = (beforeAt, beforeKey) => rpc("feed", { before_at: beforeAt || null, before_key: beforeKey || null, lim: 30 });
 const feedReact = (kind, ref, emoji) => rpc("feed_react", { kind, ref, emoji });
 async function sendMessage(other, body, betId) {
@@ -225,6 +229,6 @@ addEventListener("online", () => latest && flush());
 addEventListener("pagehide", () => { if (latest) flush(); });
 
 window.Cloud = { configured, currentUser, onAuth, nameAvailable, signUp, signIn, signOut, resetPassword, setPassword,
-  getProfile, updateProfile, uploadAvatar, searchProfiles, myFriends, friendRequest, friendRespond, friendRemove, leaderboard, myChats, chatMessages, chatMarkRead, chatReact, feed, feedReact, sendMessage, myGroups, groupMessages, groupMarkRead, groupReact, groupCreate, groupAdd, groupRename, groupLeave, groupPeople, sendGroupMessage, onChat, offChat, load, fetchAll, prime, merge, readCache, writeCache, queue, flush, pending, nice,
+  getProfile, updateProfile, uploadAvatar, searchProfiles, myFriends, friendRequest, friendRespond, friendRemove, leaderboard, myChats, chatMessages, chatMarkRead, chatReact, feed, feedReact, sendMessage, myGroups, groupMessages, groupMarkRead, groupReact, groupCreate, groupAdd, groupRename, groupLeave, groupPeople, sendGroupMessage, myChallenges, challengeCreate, challengeRespond, challengeWins, onChat, offChat, load, fetchAll, prime, merge, readCache, writeCache, queue, flush, pending, nice,
   get user() { return user; }, set onStatus(f) { onStatus = f; }, set onRejected(f) { onRejected = f; } };
 })();

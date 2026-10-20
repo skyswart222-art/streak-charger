@@ -607,6 +607,22 @@ body.in-convo .topbar { display: none; }
 .pick-person:has(input:checked) { border-color: var(--accent); }
 .gi-rename { display: flex; gap: 8px; } .gi-rename input { flex: 1; min-width: 0; }
 .gi-list { margin-bottom: 12px; }
+/* Challenges */
+.ch-card { padding: 14px; border-radius: 18px; margin-bottom: 10px; }
+.ch-card.invite { box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--accent) 60%, transparent); }
+.ch-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 8px; }
+.ch-top h3 { margin: 2px 0 0; }
+.ch-status { font-size: 13px; font-weight: 700; color: var(--muted); text-align: right; max-width: 55%; }
+.ch-card.done .ch-status { color: var(--fg); }
+.ch-rows { display: grid; gap: 4px; }
+.ch-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 12px; }
+.ch-row.mine { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.ch-rank { width: 22px; text-align: center; font-weight: 800; color: var(--muted); font-variant-numeric: tabular-nums; }
+.ch-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ch-name .glowname.g-flame { animation: none; } .ch-name .glowname.g-cosmic { filter: none; }
+.ch-score { text-align: right; line-height: 1.1; }
+.ch-score b { font-family: var(--display); font-size: 22px; display: block; }
+.ch-score small { color: var(--muted); font-size: 11px; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }

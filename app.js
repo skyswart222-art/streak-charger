@@ -491,11 +491,12 @@ const NAV = [
   { id: "leaderboard", n: "Leaders", ic: '<path d="M8 20V11h8v9"/><path d="M3 20v-5h5M16 20v-7h5v7"/><path d="M2 20h20"/><path d="m12 3 1.2 2.4 2.6.4-1.9 1.8.5 2.6L12 9l-2.4 1.2.5-2.6-1.9-1.8 2.6-.4z"/>' },
   { id: "chat", n: "Chat", ic: '<path d="M5 5h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-8l-5 4v-4H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z"/>' },
 ];
-const PAGES = ["home", "feed", "trackers", "stats", "planner", "awards", "friends", "leaderboard", "chat", "profile"];
+const PAGES = ["home", "feed", "trackers", "stats", "planner", "awards", "friends", "leaderboard", "challenges", "chat", "profile"];
 // Which bottom tab lights up for each page.
-const navOf = p => ({ trackers: "home", feed: "home", planner: "stats", awards: "stats", profile: "" }[p] ?? p);
+const navOf = p => ({ trackers: "home", feed: "home", planner: "stats", awards: "stats", challenges: "leaderboard", profile: "" }[p] ?? p);
 const SUBNAV = [["stats", "Stats"], ["planner", "Planner"], ["awards", "Awards"]];
 const HOMENAV = [["home", "My tracker"], ["feed", "Feed"]];
+const LEADNAV = [["leaderboard", "Leaderboard"], ["challenges", "Challenges"]];
 let previewSkin = null;
 function applySkin() { document.documentElement.dataset.skin = previewSkin || state.skin; }
 function setAccent(c) {
@@ -525,7 +526,7 @@ function render(anim) {
   setAccent(state.page === "home" || state.page === "stats" ? t.accent : ACCENTS[0]);
   $("#fabBar").hidden = state.page !== "home";
   ({ home: renderHome, trackers: renderTrackers, stats: renderStats, planner: renderPlanner, awards: renderAwards, profile: renderProfile,
-     friends: renderFriends, leaderboard: renderLeaders, chat: renderChat, feed: renderFeed })[state.page](anim);
+     friends: renderFriends, leaderboard: renderLeaders, chat: renderChat, feed: renderFeed, challenges: renderChallenges })[state.page](anim);
   // Stats, Planner and Awards share the Stats tab, with a switcher on top.
   if (SUBNAV.some(x => x[0] === state.page)) $("#view").insertAdjacentHTML("afterbegin", `<div class="seg subnav">${SUBNAV.map(([id, n]) => `<button data-nav="${id}" class="${state.page === id ? "on" : ""}">${n}</button>`).join("")}</div>`);
   // Home has your tracker and the friends feed, with the same switcher.
@@ -1506,6 +1507,8 @@ function renderMe() {
   if (fb) { fb.classList.add("has-dot"); fb.dataset.count = n || ""; }
   const cb = $('#nav [data-nav="chat"]'), u = unreadCount();
   if (cb) { cb.classList.add("has-dot"); cb.dataset.count = u > 99 ? "99+" : u || ""; }
+  const lb = $('#nav [data-nav="leaderboard"]');
+  if (lb) { lb.classList.add("has-dot"); lb.dataset.count = challengeInvites() || ""; }
   const hb = $('#nav [data-nav="home"]');
   if (hb) { hb.classList.add("has-dot"); hb.dataset.count = state.page === "feed" ? "" : feedNewLabel(); }
   document.body.classList.toggle("in-convo", state.page === "chat" && !!chatWith);
@@ -1618,8 +1621,8 @@ function startApp() {
   evalAchievements(); save(); render();
   // A different account may have just logged in on this device, so start the friends list afresh.
   friends = null; friendsErr = ""; fQuery = ""; fResults = null; boards = {};
-  chats = null; chatWith = null; convos = {}; feed = null; feedErr = ""; feedPick = null;
-  if (!localMode) { loadFriends(true); loadChats(true); loadFeed(); Cloud.onChat(onChatEvent); }
+  chats = null; chatWith = null; convos = {}; feed = null; feedErr = ""; feedPick = null; challenges = null; challengesErr = "";
+  if (!localMode) { loadFriends(true); loadChats(true); loadFeed(); loadChallenges(); Cloud.onChat(onChatEvent); }
 }
 function readUI() { try { return JSON.parse(localStorage.getItem(UI_KEY) || "{}"); } catch (e) { return {}; } }
 
@@ -1675,6 +1678,7 @@ function renderProfile() {
       ${avatarHTML(132, { badge: true, edit: true })}
       <h1>${glowName(me.display_name)}</h1>
       <div class="sub" style="margin:0">${tierBadge(b.tier, undefined, false)} ${b.streak ? `${plural(b.streak, "win")} in a row on ${esc(b.t.name)}` : "No live streak yet"}</div>
+      <div class="sub" id="pWins" style="margin:4px 0 0"></div>
       <div class="err" id="avErr" style="margin-top:6px"></div>
     </div>
     <div class="glass card">
@@ -1695,6 +1699,7 @@ function renderProfile() {
     try { me = await Cloud.uploadAvatar(f, me.avatar_url); render(); toast("Photo updated."); }
     catch (x) { $("#avErr").textContent = Cloud.nice(x); $(".profile-hero .avatar").classList.remove("busy"); }
   };
+  Cloud.challengeWins(Cloud.user.id).then(n => { const el = $("#pWins"); if (el && n) el.textContent = `🏆 ${plural(n, "challenge")} won`; }).catch(() => {});
   $("#pNameSave").onclick = async () => {
     const v = $("#pName").value.trim(), h = $("#pNameHint");
     if (v === me.display_name) return;
@@ -1733,7 +1738,7 @@ async function loadFriends(force) {
 }
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState !== "visible" || !state) return;
-  loadFriends(); loadChats(true); loadFeed(state.page === "feed" ? 0 : 30000); if (state.page === "leaderboard") loadBoard(true);
+  loadFriends(); loadChats(true); loadFeed(state.page === "feed" ? 0 : 30000); loadChallenges(30000); if (state.page === "leaderboard") loadBoard(true);
   if (state.page === "chat" && chatWith) loadConvo(chatWith);
 });
 
@@ -1837,7 +1842,7 @@ function openFriend(p) {
       <div><div class="k">Best streak</div><div class="v">${p.best_streak || 0}</div></div>
       <div><div class="k">Banked</div><div class="v">${moneyShort(p.banked || 0)}</div></div>
     </div>` : ""}
-    ${friendsNow ? `<div class="note" style="margin:0 0 14px;text-align:center">Friends since ${since}</div><button class="btn" id="fMessage" style="margin-bottom:10px">💬 Message ${esc(p.display_name)}</button><button class="btn warn" id="fUnfriend">Unfriend</button>`
+    ${friendsNow ? `<div class="note" style="margin:0 0 14px;text-align:center">Friends since ${since}<span id="fWins"></span></div><button class="btn" id="fMessage" style="margin-bottom:10px">💬 Message ${esc(p.display_name)}</button><button class="btn sec" id="fChallenge" style="margin-bottom:10px">⚔️ Challenge ${esc(p.display_name)}</button><button class="btn warn" id="fUnfriend">Unfriend</button>`
       : f && f.incoming ? `<button class="btn" id="fAccept">Accept friend request</button>`
       : f ? `<button class="btn sec" id="fCancel">Cancel request</button>` : `<button class="btn" id="fAdd">Add friend</button>`}`);
   let armed = false;
@@ -1847,6 +1852,8 @@ function openFriend(p) {
     closeSheet(); friendDo(p.id, () => Cloud.friendRemove(p.id), `You're no longer friends with ${p.display_name}.`);
   };
   if (b("#fMessage")) b("#fMessage").onclick = () => { closeSheet(); openChat(p.id); };
+  if (b("#fChallenge")) b("#fChallenge").onclick = () => { closeSheet(); openNewChallenge(p.id); };
+  if (b("#fWins")) Cloud.challengeWins(p.id).then(n => { const el = b("#fWins"); if (el && n) el.textContent = ` · 🏆 ${plural(n, "challenge")} won`; }).catch(() => {});
   if (b("#fAccept")) b("#fAccept").onclick = () => { closeSheet(); friendDo(p.id, () => Cloud.friendRespond(p.id, true), `You and ${p.display_name} are now friends.`); };
   if (b("#fCancel")) b("#fCancel").onclick = () => { closeSheet(); friendDo(p.id, () => Cloud.friendRemove(p.id), "Request cancelled."); };
   if (b("#fAdd")) b("#fAdd").onclick = () => { closeSheet(); friendDo(p.id, () => Cloud.friendRequest(p.id), r => r === "friends" ? `You and ${p.display_name} are now friends.` : `Request sent to ${p.display_name}.`); };
@@ -1881,7 +1888,7 @@ function renderLeaders() {
   const top = rows.filter(r => !r.is_me || r.rank <= 50), podium = top.slice(0, 3).filter(r => r.score > 0), rest = top.slice(podium.length);
   const outside = meRow && !top.includes(meRow);
   const lonely = boardScope === "friends" && rows.length === 1;
-  $("#view").innerHTML = `
+  $("#view").innerHTML = `${leadNav()}
     <div class="head" style="padding-top:18px"><div><div class="eyebrow">${boardScope === "friends" ? "You and your friends" : "Everyone on Streak Charger"}</div><h1>Leaderboard</h1></div></div>
     <div class="seg" style="margin-bottom:10px">${[["friends", "Friends"], ["everyone", "Everyone"]].map(([k, n]) => `<button data-bscope="${k}" class="${boardScope === k ? "on" : ""}">${n}</button>`).join("")}</div>
     <div class="lb-metrics">${BOARD_METRICS.map(([k, n]) => `<button data-bmetric="${k}" class="${boardMetric === k ? "on" : ""}">${n}</button>`).join("")}</div>
@@ -1992,6 +1999,7 @@ function chatPoll() {
     if (!state || localMode || document.visibilityState !== "visible") return;
     if (state.page === "chat" && chatWith) loadConvo(chatWith); else loadChats(true);
     loadFeed(state.page === "feed" ? 15000 : 60000);
+    loadChallenges(state.page === "challenges" ? 15000 : 60000);
   }, every);
 }
 function openChat(id) { chatWith = id; chatBet = null; go("chat"); }
@@ -2350,6 +2358,111 @@ async function openGroupInfo() {
   try { people = await Cloud.groupPeople(gidOf(id)); } catch (x) { err = Cloud.nice(x); }
   paint();
 }
+
+/* ---------- Challenges: who gets the longest run of wins in a set time ----------
+   The database scores them: only bets logged during the challenge, and settled before it ends, count. */
+let challenges = null, challengesAt = 0, challengesErr = "", challengesLoading = false, chBusy = new Set();
+// Leaders has the leaderboard and challenges, with a switcher on top. Both screens redraw themselves when data arrives, so each includes it.
+const leadNav = () => `<div class="seg subnav">${LEADNAV.map(([id, n]) => `<button data-nav="${id}" class="${state.page === id ? "on" : ""} ${id === "challenges" ? "has-dot" : ""}" ${id === "challenges" ? `data-count="${challengeInvites() || ""}"` : ""}>${n}</button>`).join("")}</div>`;
+const challengeInvites = () => (challenges || []).filter(c => c.my_status === "invited" && !c.finished).length;
+async function loadChallenges(maxAge = 0) {
+  if (!Cloud.user || localMode || challengesLoading || Date.now() - challengesAt < maxAge) return;
+  challengesAt = Date.now(); challengesLoading = true;
+  try { challenges = await Cloud.myChallenges(); challengesErr = ""; } catch (x) { challengesErr = Cloud.nice(x); }
+  challengesLoading = false;
+  if (!state || scrim) return;
+  renderMe();
+  if (state.page === "challenges") renderChallenges();
+  else if (state.page === "leaderboard") { const b = $('.subnav [data-nav="challenges"]'); if (b) b.dataset.count = challengeInvites() || ""; }
+}
+function timeLeft(ts) {
+  const ms = new Date(ts) - Date.now(); if (ms <= 0) return "Finished";
+  const d = Math.floor(ms / 864e5), h = Math.floor(ms % 864e5 / 36e5), m = Math.max(1, Math.floor(ms % 36e5 / 6e4));
+  return "Ends in " + (d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : `${m}m`);
+}
+// Players ranked by score; people who haven't accepted go last.
+function challengeRows(c) {
+  const ps = (c.members || []).filter(m => m.status !== "declined");
+  const played = ps.filter(m => m.status === "accepted").sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
+  const top = played.length ? played[0].score : 0;
+  return { played, waiting: ps.filter(m => m.status === "invited"), top, winners: c.finished && top > 0 && played.length > 1 ? played.filter(m => m.score === top) : [] };
+}
+const andList = a => a.length < 2 ? a.join("") : a.slice(0, -1).join(", ") + " and " + a[a.length - 1];
+function challengeCard(c) {
+  const { played, waiting, top, winners } = challengeRows(c), me = Cloud.user.id, invited = c.my_status === "invited" && !c.finished;
+  const from = (c.members || []).find(m => m.id === c.created_by), busy = chBusy.has(c.id) ? "disabled" : "";
+  const status = c.finished
+    ? (winners.length ? `🏆 ${esc(andList(winners.map(w => w.id === me ? "You" : w.name)))} ${winners.length > 1 ? "shared the win" : winners[0].id === me ? "won" : "won"}` : played.length > 1 ? "No winner: nobody won a bet" : "Nobody else joined")
+    : timeLeft(c.ends_at);
+  const row = (m, i) => {
+    const t = tierOf(m), lead = !c.finished && m.score > 0 && m.score === top && played.length > 1, win = winners.some(w => w.id === m.id);
+    return `<div class="ch-row ${m.id === me ? "mine" : ""}">
+      <span class="ch-rank">${m.status === "accepted" ? (win ? "🏆" : lead ? "👑" : i + 1) : ""}</span>
+      ${personAvatar(m.name, m.avatar_url, m.streak, t, 34)}
+      <span class="ch-name">${m.id === me ? "<b>You</b>" : glowNameAs(m.name, t)}</span>
+      <span class="ch-score">${m.status === "accepted" ? `<b>${m.score}</b><small>${m.score === 1 ? "win" : "wins"} in a row</small>` : `<small>Invited</small>`}</span></div>`;
+  };
+  return `<div class="glass ch-card ${c.finished ? "done" : ""} ${invited ? "invite" : ""}">
+    <div class="ch-top"><div><div class="eyebrow">${invited ? `⚔️ ${from ? esc(from.name) : "A friend"} challenged you` : c.finished ? "Finished " + new Date(c.ends_at).toLocaleDateString(undefined, { day: "numeric", month: "short" }) : "Live"}</div>
+      <h3>${esc(c.title)}</h3></div><span class="ch-status">${status}</span></div>
+    <div class="ch-rows">${played.map(row).join("")}${waiting.map(m => row(m, 0)).join("")}</div>
+    ${invited ? `<div class="row2" style="margin-top:12px"><button class="btn sec" data-chno="${c.id}" ${busy}>Decline</button><button class="btn" data-chyes="${c.id}" ${busy}>Accept</button></div>
+      <div class="note" style="margin:8px 0 0">${timeLeft(c.ends_at)}. Bets you log from now on count once you accept.</div>` : ""}
+  </div>`;
+}
+function renderChallenges() {
+  if (localMode) { go("leaderboard"); return; }
+  loadChallenges(4000); loadFriends();
+  const list = challenges || [], invites = list.filter(c => c.my_status === "invited" && !c.finished);
+  const live = list.filter(c => !c.finished && c.my_status === "accepted"), done = list.filter(c => c.finished && c.my_status === "accepted");
+  const mates = (friends || []).filter(f => f.status === "accepted");
+  $("#view").innerHTML = `${leadNav()}
+    <div class="head" style="padding-top:18px"><div><div class="eyebrow">Longest run of wins</div><h1>Challenges</h1></div>
+      ${mates.length ? `<button class="ghost" data-newch>⚔️ New</button>` : ""}</div>
+    ${challengesErr ? `<div class="glass card"><div class="err" style="margin:0">${esc(challengesErr)}</div></div>` : ""}
+    ${!challenges && !challengesErr ? `<div class="glass card"><div class="cap" style="margin:0">Loading your challenges…</div></div>` : ""}
+    ${invites.map(challengeCard).join("")}
+    ${live.length ? `<div class="section-h"><h2>Running</h2></div>${live.map(challengeCard).join("")}` : ""}
+    ${challenges && !invites.length && !live.length ? `<div class="glass card fempty"><div class="soon-ic">⚔️</div><p>Challenge your friends to see who gets the longest run of wins in 3 days, a week or two weeks.</p>
+      ${mates.length ? `<button class="btn" data-newch>Start a challenge</button>` : `<button class="btn sec" data-nav="friends">Find friends</button>`}</div>` : ""}
+    ${done.length ? `<div class="section-h"><h2>Finished</h2></div>${done.map(challengeCard).join("")}` : ""}
+    ${challenges ? `<div class="note" style="margin:12px 0 0;text-align:center">Only bets logged during a challenge, and settled before it ends, count. Your best run across all your trackers is your score, and a loss ends a run.</div>` : ""}`;
+}
+function openNewChallenge(preset) {
+  const mates = (friends || []).filter(f => f.status === "accepted").sort((a, b) => a.display_name.localeCompare(b.display_name)), picked = new Set(preset ? [preset] : []);
+  let days = 7;
+  const sh = openSheet(`<h3>New challenge</h3><div class="sub">Whoever gets the longest run of wins by the end takes it. It starts as soon as you send it.</div>
+    <div class="field"><label for="ncName">Name</label><input id="ncName" maxlength="40" value="Streak showdown"></div>
+    <div class="field"><label>How long</label><div class="seg" id="ncDays">${[[3, "3 days"], [7, "1 week"], [14, "2 weeks"]].map(([d, n]) => `<button data-days="${d}" class="${d === days ? "on" : ""}">${n}</button>`).join("")}</div></div>
+    <div class="field"><label>Who you're challenging</label></div>
+    <div class="pick-people">${mates.map(f => `<label class="pick-person"><input type="checkbox" value="${f.id}" ${picked.has(f.id) ? "checked" : ""}>${personAvatar(f.display_name, f.avatar_url, f.streak, tierOf(f), 36)}<span>${glowNameAs(f.display_name, tierOf(f))}</span></label>`).join("")}</div>
+    <div class="err" id="ncErr"></div><button class="btn" id="ncGo">Send challenge</button>`);
+  const name = sh.querySelector("#ncName"), send = sh.querySelector("#ncGo");
+  const update = () => {
+    const n = picked.size;
+    send.disabled = !n || n > 9 || !name.value.trim();
+    send.textContent = !n ? "Pick a friend" : n > 9 ? "Up to 9 friends" : !name.value.trim() ? "Name the challenge" : `Challenge ${n === 1 ? mates.find(f => picked.has(f.id)).display_name : plural(n, "friend")}`;
+  };
+  sh.querySelectorAll("[data-days]").forEach(b => b.onclick = () => { days = Number(b.dataset.days); sh.querySelectorAll("[data-days]").forEach(x => x.classList.toggle("on", x === b)); });
+  sh.querySelectorAll(".pick-person input").forEach(cb => cb.onchange = () => { cb.checked ? picked.add(cb.value) : picked.delete(cb.value); update(); });
+  name.oninput = update; update();
+  send.onclick = async () => {
+    send.disabled = true; send.textContent = "Sending…";
+    try { await Cloud.challengeCreate(name.value.trim(), [...picked], days); closeSheet(); toast("Challenge sent. Good luck! ⚔️"); if (state.page !== "challenges") go("challenges"); await loadChallenges(); }
+    catch (x) { sh.querySelector("#ncErr").textContent = Cloud.nice(x); update(); }
+  };
+}
+document.addEventListener("click", async e => {
+  if (!state || !Cloud.user) return;
+  const t = e.target;
+  if (t.closest("[data-newch]")) return openNewChallenge();
+  const y = t.closest("[data-chyes],[data-chno]"); if (!y) return;
+  const id = Number(y.dataset.chyes || y.dataset.chno), accept = !!y.dataset.chyes;
+  chBusy.add(id); renderChallenges();
+  try { await Cloud.challengeRespond(id, accept); toast(accept ? "You're in. Good luck! ⚔️" : "Challenge declined."); }
+  catch (x) { toast(Cloud.nice(x), "bad"); }
+  chBusy.delete(id); loadChallenges();
+});
 
 /* =========================================================
    Boot
