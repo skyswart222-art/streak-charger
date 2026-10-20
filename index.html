@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#15171b">
 <title>Pipe Dream</title>
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
@@ -642,6 +642,11 @@ body.in-convo .topbar { display: none; }
 /* Full-screen from the Home Screen draws under the status bar. Start the page below it,
    so the sticky top bar doesn't slide down over the first thing on each screen. */
 .app { padding-top: env(safe-area-inset-top, 0px); }
+
+/* iPhone zooms the whole app in when you double-tap, or when you tap a box whose text is
+   under 16px, and stays zoomed, so the edges of every screen get cut off. Stop both. */
+html { touch-action: manipulation; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+@supports (-webkit-touch-callout: none) { input, textarea, select { font-size: max(16px, 1em) !important; } }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
