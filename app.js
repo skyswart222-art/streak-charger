@@ -1920,7 +1920,10 @@ function openFriend(p) {
       <div><div class="k">Best streak</div><div class="v">${p.best_streak || 0}</div></div>
       <div><div class="k">Banked</div><div class="v">${moneyShort(p.banked || 0)}</div></div>
     </div>` : ""}
-    ${friendsNow ? `<div class="note" style="margin:0 0 14px;text-align:center">Friends since ${since}<span id="fWins"></span></div><button class="btn" id="fMessage" style="margin-bottom:10px">💬 Message ${esc(p.display_name)}</button><button class="btn sec" id="fChallenge" style="margin-bottom:10px">⚔️ Challenge ${esc(p.display_name)}</button><button class="btn warn" id="fUnfriend">Unfriend</button>`
+    ${friendsNow ? `<div id="fLive">${liveCardHTML(p.live, p)}</div>
+      <div class="note" style="margin:0 0 14px;text-align:center">Friends since ${since}<span id="fWins"></span></div><button class="btn" id="fMessage" style="margin-bottom:10px">💬 Message ${esc(p.display_name)}</button><button class="btn sec" id="fChallenge" style="margin-bottom:10px">⚔️ Challenge ${esc(p.display_name)}</button>
+      <div class="section-h"><h2>Bets</h2></div><div class="fbets" id="fBets"><div class="cap" style="margin:0">Loading ${esc(p.display_name)}'s bets…</div></div>
+      <button class="btn warn" id="fUnfriend" style="margin-top:16px">Unfriend</button>`
       : f && f.incoming ? `<button class="btn" id="fAccept">Accept friend request</button>`
       : f ? `<button class="btn sec" id="fCancel">Cancel request</button>` : `<button class="btn" id="fAdd">Add friend</button>`}`);
   let armed = false;
@@ -1932,9 +1935,62 @@ function openFriend(p) {
   if (b("#fMessage")) b("#fMessage").onclick = () => { closeSheet(); openChat(p.id); };
   if (b("#fChallenge")) b("#fChallenge").onclick = () => { closeSheet(); openNewChallenge(p.id); };
   if (b("#fWins")) Cloud.challengeWins(p.id).then(n => { const el = b("#fWins"); if (el && n) el.textContent = ` · 🏆 ${plural(n, "challenge")} won`; }).catch(() => {});
+  if (b("#fBets")) loadFriendBets(sh, p);
   if (b("#fAccept")) b("#fAccept").onclick = () => { closeSheet(); friendDo(p.id, () => Cloud.friendRespond(p.id, true), `You and ${p.display_name} are now friends.`); };
   if (b("#fCancel")) b("#fCancel").onclick = () => { closeSheet(); friendDo(p.id, () => Cloud.friendRemove(p.id), "Request cancelled."); };
   if (b("#fAdd")) b("#fAdd").onclick = () => { closeSheet(); friendDo(p.id, () => Cloud.friendRequest(p.id), r => r === "friends" ? `You and ${p.display_name} are now friends.` : `Request sent to ${p.display_name}.`); };
+}
+
+/* ---------- Friends' progress and bets ----------
+   The database works out each person's progress on the tracker they're furthest along, the same way
+   your own ring does: wins so far out of wins so far plus the wins still needed at their usual odds. */
+const livePct = l => Math.max(0, Math.min(100, Math.round((l.frac || 0) * 100)));
+const liveGoal = l => l.to_go === 0 ? "Target hit 🎯" : l.to_go == null ? "" : `${plural(l.to_go, "win")} to go`;
+function liveBarHTML(l, p, mini) {
+  if (!l) return "";
+  const t = tierOf(p);
+  return `<span class="lbar ${mini ? "mini" : ""} ${l.pending ? "live" : ""}" style="--b1:${t.c1};--b2:${t.c2}" title="${livePct(l)}% of the way to ${moneyShort(l.target)}">
+    <span class="lbar-track"><i style="width:${Math.max(livePct(l), 3)}%"></i></span>
+    ${mini ? "" : `<span class="lbar-cap">${l.pending ? `<em>⏳ Bet in play</em>` : `<span>${moneyShort(l.balance)} → ${moneyShort(l.target)}</span>`}<span>${liveGoal(l)}</span></span>`}</span>`;
+}
+function liveCardHTML(l, p) {
+  if (!l) return "";
+  return `<div class="glass card fprog">
+    <div class="fprog-top"><span><small>${esc(l.tracker)}</small><b>${money(l.balance)}</b></span><span class="fprog-pct">${livePct(l)}%</span></div>
+    ${liveBarHTML(l, p)}
+    <div class="note" style="margin:8px 0 0">Started at ${moneyShort(l.start)}, chasing ${moneyShort(l.target)}${l.streak ? ` with ${plural(l.streak, "win")} in a row` : ""}.</div></div>`;
+}
+const RES = { win: ["✅", "Won"], loss: ["❌", "Lost"], pending: ["⏳", "In play"] };
+function friendBetHTML(b) {
+  const r = RES[b.result] || ["🎟️", ""];
+  return `<div class="fbet ${b.result}" data-fbet="${esc(b.id)}">
+    <button class="fbet-head" data-fbettoggle><span class="fbet-ic">${r[0]}</span>
+      <span class="fbet-main"><b>${esc(b.text)}</b><small>${esc(b.sport)} · ${esc(b.tracker)} · ${when(Number(b.created_at))}</small></span>
+      <span class="fbet-odds">${b.slip ? "🧾 " : ""}@ ${odds2(b.odds)}</span></button>
+    <div class="fbet-more" hidden>
+      <div class="fbet-kv"><span>Result</span><b>${r[0]} ${r[1]}</b><span>Odds</span><b>${odds2(b.odds)}</b><span>Sport</span><b>${esc(b.sport)}</b>
+        <span>Tracker</span><b><i class="fbet-dot" style="background:${esc(b.accent || "var(--accent)")}"></i>${esc(b.tracker)}</b>
+        <span>Logged</span><b>${when(Number(b.created_at))}</b>${b.settled_at ? `<span>Settled</span><b>${when(Number(b.settled_at))}</b>` : ""}</div>
+      ${b.link && /^https?:\/\//i.test(b.link) ? `<a class="btn sec fbet-link" href="${esc(b.link)}" target="_blank" rel="noopener">🔗 Open bet link</a>` : ""}
+      ${b.slip ? `<button class="slip" data-photo="${esc(b.slip)}" aria-label="Open bet slip"><img data-media="${esc(b.slip)}" alt=""><span><b>🧾 Bet slip</b><small>Tap to view</small></span></button>` : `<div class="cap" style="margin:0">No slip photo on this one.</div>`}
+    </div></div>`;
+}
+async function loadFriendBets(sh, p) {
+  const box = sh.querySelector("#fBets");
+  let d;
+  try { d = await Cloud.friendBets(p.id); }
+  catch (x) { if (box.isConnected) box.innerHTML = `<div class="cap" style="margin:0">${/friend_bets/.test(Cloud.nice(x)) ? "Bets show here once the database is updated." : esc(Cloud.nice(x))}</div>`; return; }
+  if (!box.isConnected) return;
+  if (!d) { box.innerHTML = `<div class="cap" style="margin:0">Only friends can see each other's bets.</div>`; return; }
+  const lv = sh.querySelector("#fLive"); if (lv) lv.innerHTML = liveCardHTML(d.live, p);
+  const bets = d.bets || [];
+  box.innerHTML = bets.length ? bets.map(friendBetHTML).join("") : `<div class="cap" style="margin:0">No bets to show yet. Bets on trackers ${esc(p.display_name)} keeps private don't show here.</div>`;
+  box.querySelectorAll("[data-fbettoggle]").forEach(h => h.onclick = () => {
+    const el = h.closest(".fbet"), more = el.querySelector(".fbet-more");
+    more.hidden = !more.hidden; el.classList.toggle("open", !more.hidden);
+    const img = more.querySelector(".slip img:not([src])");
+    if (img && !more.hidden) Cloud.mediaUrl(img.dataset.media).then(u => { img.src = u; }).catch(() => img.closest(".slip").classList.add("broken"));
+  });
 }
 
 /* ---------- Leaderboard ----------
@@ -1951,6 +2007,8 @@ async function loadBoard(force) {
   catch (x) { boards[k] = { ...(b || {}), err: Cloud.nice(x), at: Date.now() }; }
   if (state && !scrim && state.page === "leaderboard" && boardKey() === k) renderLeaders();
 }
+// Keep the board live while it's on screen.
+setInterval(() => { if (state && !scrim && state.page === "leaderboard" && !document.hidden) loadBoard(true); }, 20000);
 const boardValue = (p, m = boardMetric) => m === "banked" ? moneyShort(p.banked || 0) : String(m === "best" ? p.best_streak || 0 : p.streak || 0);
 const boardUnit = (p, m = boardMetric) => m === "banked" ? "banked" : m === "best" ? "best" : ((p.streak || 0) === 1 ? "win" : "wins");
 const MEDALS = ["🥇", "🥈", "🥉"];
@@ -1985,7 +2043,7 @@ function podiumHTML(p) {
     <span class="lb-medal">${MEDALS[Math.min(i, 2)]}</span>
     ${personAvatar(p.display_name, p.avatar_url, p.streak, t, i === 0 ? 78 : 62, { badge: true })}
     <b>${glowNameAs(p.display_name, t)}</b>
-    <span class="lb-val">${boardValue(p)}<small> ${boardUnit(p)}</small></span></button>`;
+    <span class="lb-val">${boardValue(p)}<small> ${boardUnit(p)}</small></span>${liveBarHTML(p.live, p, true)}${p.live && p.live.pending ? `<span class="lb-inplay">⏳ in play</span>` : ""}</button>`;
 }
 function boardRow(p) {
   const t = tierOf(p);
@@ -1994,7 +2052,7 @@ function boardRow(p) {
   return `<div class="frow lb-row ${p.is_me ? "me" : ""}" data-fid="${p.id}">
     <span class="lb-rank">${p.rank}</span>
     <button class="fwho" data-fopen="${p.id}">${personAvatar(p.display_name, p.avatar_url, p.streak, t, 42, { badge: true })}
-      <span class="fname"><b>${glowNameAs(p.display_name, t)}${p.is_me ? ` <em class="lb-you">You</em>` : ""}</b><small>${sub}</small></span></button>
+      <span class="fname"><b>${glowNameAs(p.display_name, t)}${p.is_me ? ` <em class="lb-you">You</em>` : ""}</b><small>${sub}</small>${liveBarHTML(p.live, p)}</span></button>
     <span class="lb-score">${boardValue(p)}</span></div>`;
 }
 document.addEventListener("click", e => {

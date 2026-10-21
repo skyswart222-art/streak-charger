@@ -21,6 +21,20 @@ create unique index if not exists profiles_display_name_unique on public.profile
 alter table public.profiles add column if not exists best_streak    integer not null default 0;
 alter table public.profiles add column if not exists streak_tracker text;
 alter table public.profiles add column if not exists banked         double precision not null default 0;
+-- Live progress on the tracker friends see (worked out by recompute_profile_stats, never typed in).
+create table if not exists public.profile_live (
+  user_id    uuid primary key references auth.users (id) on delete cascade,
+  tracker    text,
+  streak     integer not null default 0,
+  balance    double precision,
+  start      double precision,
+  target     double precision,
+  to_go      integer,
+  frac       double precision not null default 0,
+  pending    boolean not null default false,
+  updated_at timestamptz not null default now()
+);
+alter table public.profile_live enable row level security;
 
 -- ---------- Settings: themes, achievements, recent sports, stats layout ----------
 create table if not exists public.user_settings (
@@ -299,6 +313,7 @@ declare
   t record; e record;
   bal double precision; amt double precision; streak integer;
   live integer := 0; live_name text; ever integer := 0; banked_total double precision := 0;
+  odds double precision; need integer; pick record; picked boolean := false; pick_streak integer := -1;
 begin
   -- Only trackers you show to others count towards the streak friends and the community see.
   for t in select * from public.trackers where user_id = uid and shared order by position, created_at loop
@@ -322,7 +337,31 @@ begin
       end if;
     end loop;
     if streak > live then live := streak; live_name := t.name; end if;
+    -- Progress shown to friends: the tracker with the live streak (or the first one), worked out like the
+    -- app's ring: wins so far out of wins so far plus wins still needed at the tracker's typical odds.
+    if streak > pick_streak then
+      if t.odds_mode = 'auto' then
+        select percentile_cont(0.5) within group (order by x.odds) into odds
+          from (select b.odds from public.bets b where b.tracker_id = t.id order by b.created_at desc, b.id desc limit 10) x;
+      end if;
+      odds := coalesce(case when t.odds_mode = 'auto' then odds end, t.fixed_odds);
+      need := case when bal >= t.target then 0 when odds <= 1 or bal <= 0 then null
+                   else greatest(1, ceil(ln(t.target / bal) / ln(odds) - 1e-9))::integer end;
+      select t.name as name, streak as streak, bal as balance, t.start_balance as start, t.target as target, need as to_go,
+             case when bal >= t.target then 1.0 when need is null or streak + need = 0 then 0.0 else streak::double precision / (streak + need) end as frac,
+             exists (select 1 from public.bets b where b.tracker_id = t.id and b.result = 'pending') as pending
+        into pick;
+      picked := true; pick_streak := streak;
+    end if;
   end loop;
+  if picked then
+    insert into public.profile_live (user_id, tracker, streak, balance, start, target, to_go, frac, pending, updated_at)
+    values (uid, pick.name, pick.streak, round(pick.balance::numeric, 2), pick.start, pick.target, pick.to_go, pick.frac, pick.pending, now())
+    on conflict (user_id) do update set tracker = excluded.tracker, streak = excluded.streak, balance = excluded.balance, start = excluded.start,
+      target = excluded.target, to_go = excluded.to_go, frac = excluded.frac, pending = excluded.pending, updated_at = now();
+  else
+    delete from public.profile_live where user_id = uid;
+  end if;
   update public.profiles
      set streak = live, tier_idx = public.tier_for(live), best_streak = ever, streak_tracker = live_name, banked = round(banked_total::numeric, 2)
    where id = uid;
@@ -456,10 +495,12 @@ grant execute on function public.friend_request(uuid), public.friend_respond(uui
 -- or banked total. Everyone-rankings leave out people on zero. Your own
 -- row always comes back, even when you're outside the top.
 -- =====================================================================
+drop function if exists public.leaderboard(text, text, integer);
 create or replace function public.leaderboard(scope text default 'friends', metric text default 'streak', lim integer default 50)
 returns table (rank bigint, id uuid, display_name text, avatar_url text, streak integer, tier_idx integer,
-               best_streak integer, banked double precision, streak_tracker text, score double precision, is_me boolean)
-language sql stable set search_path = public as $$
+               best_streak integer, banked double precision, streak_tracker text, score double precision, is_me boolean,
+               live jsonb)
+language sql stable security definer set search_path = public as $$
   with pool as (
     select p.*,
            case metric when 'best' then p.best_streak::double precision when 'banked' then p.banked else p.streak::double precision end as score
@@ -474,7 +515,8 @@ language sql stable set search_path = public as $$
     select rank() over (order by score desc) as rank, pool.* from pool
      where scope <> 'everyone' or score > 0 or id = auth.uid()
   )
-  select r.rank, r.id, r.display_name, r.avatar_url, r.streak, r.tier_idx, r.best_streak, r.banked, r.streak_tracker, r.score, r.id = auth.uid()
+  select r.rank, r.id, r.display_name, r.avatar_url, r.streak, r.tier_idx, r.best_streak, r.banked, r.streak_tracker, r.score, r.id = auth.uid(),
+         (select to_jsonb(l) - 'user_id' - 'updated_at' from public.profile_live l where l.user_id = r.id)
     from ranked r
    where r.rank <= least(greatest(lim, 1), 100) or r.id = auth.uid()
    order by r.rank, r.display_name;
@@ -1229,3 +1271,40 @@ begin
     execute 'create policy "typing send" on realtime.messages for insert to authenticated with check (realtime.messages.extension = ''broadcast'' and public.can_use_typing((select realtime.topic())))';
   end if;
 end $$;
+
+-- =========================================================
+-- Stage 12: friends' progress bars and bets
+-- =========================================================
+-- A friend's bets on the trackers they show to others, newest first, with their live progress.
+-- Only you and your friends can read these.
+create or replace function public.friend_bets(other uuid, lim integer default 60) returns jsonb
+language sql stable security definer set search_path = public as $$
+  select case when auth.uid() is null or not (other = auth.uid() or public.are_friends(auth.uid(), other)) then null else
+    jsonb_build_object(
+      'live', (select to_jsonb(l) - 'user_id' - 'updated_at' from public.profile_live l where l.user_id = other),
+      'bets', coalesce((select jsonb_agg(to_jsonb(x) order by x.created_at desc, x.id desc) from (
+          select b.id, b.text, b.sport, b.odds, b.result, b.created_at, b.settled_at, b.link, nullif(b.slip, '') as slip,
+                 t.name as tracker, t.accent
+            from public.bets b join public.trackers t on t.id = b.tracker_id
+           where b.user_id = other and t.shared
+           order by b.created_at desc, b.id desc
+           limit least(greatest(lim, 1), 200)) x), '[]'::jsonb))
+  end;
+$$;
+revoke all on function public.friend_bets(uuid, integer) from public, anon;
+grant execute on function public.friend_bets(uuid, integer) to authenticated;
+
+-- Friends can open the slip photo on a bet from a tracker that's shown to others.
+create index if not exists bets_slip_idx on public.bets (slip) where slip <> '';
+create or replace function public.can_see_chat_media(path text) returns boolean
+language sql stable security definer set search_path = public as $$
+  select auth.uid() is not null and (
+    (storage.foldername(path))[1] = auth.uid()::text
+    or exists (select 1 from public.messages m where m.media_path = path and auth.uid() in (m.sender, m.recipient))
+    or exists (select 1 from public.group_messages g where g.media_path = path and public.is_group_member(g.group_id, auth.uid()))
+    or exists (select 1 from public.bets b join public.trackers t on t.id = b.tracker_id
+                where b.slip = path and t.shared and public.are_friends(auth.uid(), b.user_id)));
+$$;
+
+-- Work out everyone's progress once, so it shows straight away.
+select public.recompute_profile_stats(id) from public.profiles;
