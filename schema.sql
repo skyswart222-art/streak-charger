@@ -1337,3 +1337,124 @@ drop trigger if exists bets_stats_delete on public.bets;
 create trigger bets_stats_delete after delete on public.bets referencing old table as changed for each statement execute function public.after_activity_change();
 drop trigger if exists trackers_stats_delete on public.trackers;
 create trigger trackers_stats_delete after delete on public.trackers referencing old table as changed for each statement execute function public.after_activity_change();
+
+-- =========================================================
+-- Stage 14: verified wins and flagged slips
+-- =========================================================
+-- A win can be verified with a screenshot of the settled slip. The app reads it on the phone and,
+-- if it shows a win at the same odds, calls verify_bet. The proof photo stays on the bet for good and
+-- friends can open it. Only verify_bet can set the proof and the verified time.
+alter table public.bets add column if not exists proof text not null default '' check (length(proof) <= 200);
+alter table public.bets add column if not exists proof_hash text not null default '' check (proof_hash = '' or proof_hash ~ '^[0-9a-f]{64}$');
+alter table public.bets add column if not exists verified_at bigint;
+-- The exact same screenshot can't verify two bets.
+create unique index if not exists bets_proof_hash_uniq on public.bets (proof_hash) where proof_hash <> '';
+create index if not exists bets_proof_idx on public.bets (proof) where proof <> '';
+
+create or replace function public.guard_bet_proof() returns trigger language plpgsql as $$
+begin
+  if coalesce(current_setting('pd.verifying', true), '') <> '1' then
+    if tg_op = 'INSERT' then
+      new.proof := ''; new.proof_hash := ''; new.verified_at := null;
+    else
+      new.proof := old.proof; new.proof_hash := old.proof_hash; new.verified_at := old.verified_at;
+    end if;
+  end if;
+  -- A verified win that gets changed to a loss or pending isn't verified any more. The photo stays.
+  if new.result <> 'win' then new.verified_at := null; end if;
+  return new;
+end $$;
+drop trigger if exists bets_guard_proof on public.bets;
+create trigger bets_guard_proof before insert or update on public.bets for each row execute function public.guard_bet_proof();
+
+create or replace function public.verify_bet(bet text, proof_path text, hash text) returns bigint
+language plpgsql security definer set search_path = public as $$
+declare b public.bets; at bigint := public.now_ms();
+begin
+  select * into b from public.bets where id = bet and user_id = auth.uid();
+  if not found then raise exception 'That bet isn''t yours.'; end if;
+  if b.result <> 'win' then raise exception 'Only a winning bet can be verified.'; end if;
+  if b.verified_at is not null then return b.verified_at; end if;
+  if b.proof <> '' then raise exception 'This bet already has a proof screenshot.'; end if;
+  if split_part(proof_path, '/', 1) <> auth.uid()::text or proof_path !~ '^[0-9a-f-]+/proof-[0-9a-f]+\.jpg$' then
+    raise exception 'That proof photo isn''t yours.';
+  end if;
+  if hash !~ '^[0-9a-f]{64}$' then raise exception 'That screenshot couldn''t be checked.'; end if;
+  if exists (select 1 from public.bets x where x.proof_hash = hash) then
+    raise exception 'That screenshot has already been used to verify a bet.';
+  end if;
+  perform set_config('pd.verifying', '1', true);
+  update public.bets set proof = proof_path, proof_hash = hash, verified_at = at where id = bet;
+  perform set_config('pd.verifying', '', true);
+  return at;
+end $$;
+revoke all on function public.verify_bet(text, text, text) from public, anon;
+grant execute on function public.verify_bet(text, text, text) to authenticated;
+
+-- Friends can flag a slip that looks edited or fake. Everyone who can see the bet sees how many flags it has.
+create table if not exists public.bet_flags (
+  bet_id     text not null references public.bets (id) on delete cascade,
+  user_id    uuid not null references auth.users (id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (bet_id, user_id)
+);
+alter table public.bet_flags enable row level security;
+-- No direct access: flags go through flag_bet and are read through friend_bets and my_bet_flags.
+
+create or replace function public.flag_bet(bet text, flag boolean) returns integer
+language plpgsql security definer set search_path = public as $$
+declare owner uuid;
+begin
+  select b.user_id into owner from public.bets b join public.trackers t on t.id = b.tracker_id
+   where b.id = bet and t.shared and (b.slip <> '' or b.proof <> '');
+  if owner is null or auth.uid() is null or not public.are_friends(auth.uid(), owner) then
+    raise exception 'You can only flag a friend''s bet slip.';
+  end if;
+  if flag then insert into public.bet_flags (bet_id, user_id) values (bet, auth.uid()) on conflict do nothing;
+  else delete from public.bet_flags where bet_id = bet and user_id = auth.uid(); end if;
+  return (select count(*) from public.bet_flags where bet_id = bet);
+end $$;
+revoke all on function public.flag_bet(text, boolean) from public, anon;
+grant execute on function public.flag_bet(text, boolean) to authenticated;
+
+-- How many friends flagged each of your own bets.
+create or replace function public.my_bet_flags() returns jsonb
+language sql stable security definer set search_path = public as $$
+  select coalesce(jsonb_object_agg(f.bet_id, f.n), '{}'::jsonb) from (
+    select fl.bet_id, count(*) as n from public.bet_flags fl join public.bets b on b.id = fl.bet_id
+     where b.user_id = auth.uid() group by fl.bet_id) f;
+$$;
+revoke all on function public.my_bet_flags() from public, anon;
+grant execute on function public.my_bet_flags() to authenticated;
+
+-- A friend's bets now carry the proof photo, when it was verified, and its flags.
+create or replace function public.friend_bets(other uuid, lim integer default 60) returns jsonb
+language sql stable security definer set search_path = public as $$
+  select case when auth.uid() is null or not (other = auth.uid() or public.are_friends(auth.uid(), other)) then null else
+    jsonb_build_object(
+      'live', (select to_jsonb(l) - 'user_id' - 'updated_at' from public.profile_live l where l.user_id = other),
+      'bets', coalesce((select jsonb_agg(to_jsonb(x) order by x.created_at desc, x.id desc) from (
+          select b.id, b.text, b.sport, b.odds, b.result, b.created_at, b.settled_at, b.link, nullif(b.slip, '') as slip,
+                 nullif(b.proof, '') as proof, b.verified_at,
+                 (select count(*) from public.bet_flags f where f.bet_id = b.id) as flags,
+                 exists (select 1 from public.bet_flags f where f.bet_id = b.id and f.user_id = auth.uid()) as my_flag,
+                 t.name as tracker, t.accent
+            from public.bets b join public.trackers t on t.id = b.tracker_id
+           where b.user_id = other and t.shared
+           order by b.created_at desc, b.id desc
+           limit least(greatest(lim, 1), 200)) x), '[]'::jsonb))
+  end;
+$$;
+revoke all on function public.friend_bets(uuid, integer) from public, anon;
+grant execute on function public.friend_bets(uuid, integer) to authenticated;
+
+-- Friends can open the proof photo the same way as the slip.
+create or replace function public.can_see_chat_media(path text) returns boolean
+language sql stable security definer set search_path = public as $$
+  select auth.uid() is not null and (
+    (storage.foldername(path))[1] = auth.uid()::text
+    or exists (select 1 from public.messages m where m.media_path = path and auth.uid() in (m.sender, m.recipient))
+    or exists (select 1 from public.group_messages g where g.media_path = path and public.is_group_member(g.group_id, auth.uid()))
+    or exists (select 1 from public.bets b join public.trackers t on t.id = b.tracker_id
+                where (b.slip = path or b.proof = path) and t.shared and public.are_friends(auth.uid(), b.user_id)));
+$$;

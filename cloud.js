@@ -57,7 +57,8 @@ function stateFrom(trackers, bets, actions, settings) {
     paused: r.paused, targetEdits: r.target_edits || [], createdAt: Number(r.created_at), ...(r.shared === false ? { shared: false } : {}), bets: [], actions: [] }]));
   bets.sort((a, b) => a.created_at - b.created_at || (a.id < b.id ? -1 : 1)).forEach(r => { const t = byT.get(r.tracker_id); if (t) t.bets.push({
     id: r.id, odds: r.odds, sport: r.sport, text: r.text, link: r.link || "", result: r.result, createdAt: Number(r.created_at),
-    settledAt: r.settled_at == null ? null : Number(r.settled_at), edits: r.edits || [], ...(r.slip ? { slip: r.slip } : {}) }); });
+    settledAt: r.settled_at == null ? null : Number(r.settled_at), edits: r.edits || [], ...(r.slip ? { slip: r.slip } : {}),
+    ...(r.proof ? { proof: r.proof } : {}), ...(r.verified_at ? { verified: Number(r.verified_at) } : {}) }); });
   actions.sort((a, b) => a.at - b.at).forEach(r => { const t = byT.get(r.tracker_id); if (t) t.actions.push({ id: r.id, type: r.type, at: Number(r.at), ...(r.payload || {}) }); });
   return { trackers: [...byT.values()], ...((settings && settings.data) || {}) };
 }
@@ -176,6 +177,19 @@ async function uploadSlip(blob) {
   must(await sb.storage.from("chat-media").upload(path, blob, { contentType: "image/jpeg", cacheControl: "31536000" }));
   return path;
 }
+// The screenshot that proves a win. verify_bet checks the bet is yours and a win, and that this exact
+// screenshot hasn't verified another bet, then marks it verified. Friends can open the photo.
+async function uploadProof(blob) {
+  const rand = Array.from(crypto.getRandomValues(new Uint8Array(12)), b => b.toString(16).padStart(2, "0")).join("");
+  const path = `${user.id}/proof-${rand}.jpg`;
+  must(await sb.storage.from("chat-media").upload(path, blob, { contentType: "image/jpeg", cacheControl: "31536000" }));
+  return path;
+}
+const verifyBet = async (id, path, hash) => Number(must(await sb.rpc("verify_bet", { bet: id, proof_path: path, hash })));
+// Flag (or unflag) a friend's slip as suspicious. Returns how many flags it has now.
+const flagBet = async (id, flag) => Number(must(await sb.rpc("flag_bet", { bet: id, flag })));
+// { betId: number of flags } for your own bets.
+const myBetFlags = async () => must(await sb.rpc("my_bet_flags")) || {};
 const mediaLinks = new Map();
 async function mediaUrl(path) {
   const hit = mediaLinks.get(path); if (hit && hit.until > Date.now()) return hit.url;
@@ -279,6 +293,6 @@ addEventListener("online", () => latest && flush());
 addEventListener("pagehide", () => { if (latest) flush(); });
 
 window.Cloud = { configured, currentUser, onAuth, nameAvailable, signUp, signIn, signOut, resetPassword, setPassword,
-  getProfile, updateProfile, uploadAvatar, searchProfiles, myFriends, friendRequest, friendRespond, friendRemove, leaderboard, friendBets, myChats, chatMessages, chatMarkRead, chatReact, feed, feedReact, sendMessage, uploadChatMedia, uploadSlip, mediaUrl, myGroups, groupMessages, groupMarkRead, groupReact, groupCreate, groupAdd, groupRename, groupLeave, groupPeople, sendGroupMessage, myChallenges, challengeCreate, challengeRespond, challengeWins, onChat, offChat, typingJoin, typingSend, typingLeave, typingTopic, deleteBet, deleteTracker, load, fetchAll, prime, merge, readCache, writeCache, queue, flush, pending, nice,
+  getProfile, updateProfile, uploadAvatar, searchProfiles, myFriends, friendRequest, friendRespond, friendRemove, leaderboard, friendBets, myChats, chatMessages, chatMarkRead, chatReact, feed, feedReact, sendMessage, uploadChatMedia, uploadSlip, uploadProof, verifyBet, flagBet, myBetFlags, mediaUrl, myGroups, groupMessages, groupMarkRead, groupReact, groupCreate, groupAdd, groupRename, groupLeave, groupPeople, sendGroupMessage, myChallenges, challengeCreate, challengeRespond, challengeWins, onChat, offChat, typingJoin, typingSend, typingLeave, typingTopic, deleteBet, deleteTracker, load, fetchAll, prime, merge, readCache, writeCache, queue, flush, pending, nice,
   get user() { return user; }, set onStatus(f) { onStatus = f; }, set onRejected(f) { onRejected = f; } };
 })();
