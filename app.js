@@ -1016,7 +1016,7 @@ function renderAwards() {
 }
 
 /* ---------- Arc star sparks ----------
-   Every win makes the star at the tip of the arc explode, and a tier-up makes a huge one.
+   Every win makes the emblem riding the tier progress ring explode (the bet arc star when there is no next tier), and a tier-up makes a huge one.
    Grinder sparks keep falling off it only near a tier-up: level 1 at 2 wins to go, level 2 (fierce) at 1 to go.
    No wins (or a paused run) means no sparks at all. */
 let sparkLoop = null;
@@ -1044,7 +1044,7 @@ function startSparks(ring, on, level) {
   function frame() {
     if (!ring.isConnected) { removeEventListener("resize", size); if (sparkLoop === loop) stopSparks(); else cv.remove(); return; }
     ctx.clearRect(0, 0, W, H);
-    const head = ring.querySelector(".ring-head circle:last-of-type"), box = ring.getBoundingClientRect();
+    const head = ring.querySelector(".tier-mark circle") || ring.querySelector(".ring-head circle:last-of-type"), box = ring.getBoundingClientRect();
     const hb = head && head.getBoundingClientRect();
     if (hb && hb.width) {
       const hx = hb.left + hb.width / 2, hy = hb.top + hb.height / 2, cx = box.left + box.width / 2, cy = box.top + box.height / 2;
