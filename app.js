@@ -569,7 +569,7 @@ function renderHome(anim) {
     <div class="list">${historyHTML(t, s)}</div>`;
   const ring = $("#ring");
   startFx(ring, shown, s.reached);
-  startSparks(ring, s.streak > 0 && !t.paused);
+  startSparks(ring, s.streak > 0 && !t.paused, nt && !s.reached ? Math.max(0, 3 - (nt.min - s.streak)) : 0);
   $("#optBtn").onclick = () => openOptions(t);
   document.querySelectorAll("[data-bet]").forEach(el => el.onclick = () => openBet(t, el.dataset.bet));
   const fab = $("#fab");
@@ -1016,28 +1016,31 @@ function renderAwards() {
 }
 
 /* ---------- Arc star sparks ----------
-   Once the run has at least one win, the star at the tip of the arc throws grinder sparks that fall down the screen.
-   A win makes it explode first. No wins (or a paused run) means no sparks at all. */
+   Every win makes the star at the tip of the arc explode, and a tier-up makes a huge one.
+   Grinder sparks keep falling off it only near a tier-up: level 1 at 2 wins to go, level 2 (fierce) at 1 to go.
+   No wins (or a paused run) means no sparks at all. */
 let sparkLoop = null;
 function stopSparks() { if (sparkLoop) { cancelAnimationFrame(sparkLoop.raf); sparkLoop.cv.remove(); sparkLoop = null; } }
-function startSparks(ring, on) {
+function startSparks(ring, on, level) {
   stopSparks();
   if (reduced || !on) return;
   const cv = document.createElement("canvas"); cv.className = "arc-sparks"; document.body.appendChild(cv);
   const ctx = cv.getContext("2d"), ps = [];
-  const loop = { cv, raf: 0, hold: false, boost: 0, flash: 0 };
+  const loop = { cv, raf: 0, hold: false, boost: 0, flash: 0, big: false };
+  const fierce = level >= 2;
   sparkLoop = loop;
   let W = 0, H = 0, acc = 0;
   const size = () => { const d = Math.min(2, devicePixelRatio || 1); W = innerWidth; H = innerHeight; cv.width = W * d; cv.height = H * d; ctx.setTransform(d, 0, 0, d, 0, 0); };
   size(); addEventListener("resize", size);
   const rnd = (a, b) => a + Math.random() * (b - a);
   const spray = (x, y, tx, ty, n, hard) => {
+    const kick = hard ? (loop.big ? 1.8 : 1) : (fierce ? 1.4 : 1) * (1 + loop.boost * .6);
     for (let i = 0; i < n; i++) {
-      const a = hard ? rnd(0, 6.283) : Math.atan2(ty, tx) + Math.PI + rnd(-.9, .9), v = hard ? rnd(2, 7.5) : rnd(1.5, 4.5) * (1 + loop.boost * .6);
-      ps.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - rnd(0, 1.5), g: hard ? .12 : .14, life: rnd(30, hard ? 55 : 60), t: 0, w: rnd(1.2, 2.4), hue: rnd(28, 52) });
+      const a = hard ? rnd(0, 6.283) : Math.atan2(ty, tx) + Math.PI + rnd(-.9, .9), v = (hard ? rnd(2, 7.5) : rnd(1.5, 4.5)) * kick;
+      ps.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - rnd(0, 1.5), g: hard ? .12 : .14, life: rnd(30, hard ? (loop.big ? 80 : 55) : 60), t: 0, w: rnd(1.2, fierce || loop.big ? 2.8 : 2.4), hue: rnd(28, fierce ? 58 : 52) });
     }
   };
-  loop.explode = () => { loop.hold = false; loop.boost = 1; loop.flash = 1; loop.pending = true; };
+  loop.explode = big => { loop.hold = false; loop.big = !!big; loop.boost = 1; loop.flash = 1; loop.pending = true; };
   function frame() {
     if (!ring.isConnected) { removeEventListener("resize", size); if (sparkLoop === loop) stopSparks(); else cv.remove(); return; }
     ctx.clearRect(0, 0, W, H);
@@ -1046,20 +1049,21 @@ function startSparks(ring, on) {
     if (hb && hb.width) {
       const hx = hb.left + hb.width / 2, hy = hb.top + hb.height / 2, cx = box.left + box.width / 2, cy = box.top + box.height / 2;
       const ang = Math.atan2(hy - cy, hx - cx), tx = -Math.sin(ang), ty = Math.cos(ang);
-      if (loop.pending) { loop.pending = false; spray(hx, hy, tx, ty, 60, true); }
-      if (!loop.hold && hy > -40 && hy < H + 40) {
-        acc += .8 * (1 + loop.boost * 4); let n = Math.floor(acc); acc -= n;
-        if (Math.random() < .03) n += Math.floor(rnd(4, 9));
+      if (loop.pending) { loop.pending = false; spray(hx, hy, tx, ty, loop.big ? 180 : 60, true); }
+      if (level && !loop.hold && hy > -40 && hy < H + 40) {
+        acc += (fierce ? 2 : .8) * (1 + loop.boost * 4); let n = Math.floor(acc); acc -= n;
+        if (Math.random() < (fierce ? .06 : .03)) n += Math.floor(rnd(4, fierce ? 14 : 9));
         if (n) spray(hx, hy, tx, ty, n, false);
       }
       if (loop.flash > 0) {
-        const fa = loop.flash, fr = (1 - fa) * 90;
+        const fa = loop.flash, sc = loop.big ? 2.6 : 1, fr = (1 - fa) * 90 * sc, gr = 60 * sc;
         ctx.globalCompositeOperation = "lighter";
-        ctx.strokeStyle = `rgba(255,236,190,${fa})`; ctx.lineWidth = 3 * fa + .5; ctx.beginPath(); ctx.arc(hx, hy, fr, 0, 6.283); ctx.stroke();
-        const g = ctx.createRadialGradient(hx, hy, 0, hx, hy, 60);
+        ctx.strokeStyle = `rgba(255,236,190,${fa})`; ctx.lineWidth = (3 * fa + .5) * (loop.big ? 2 : 1); ctx.beginPath(); ctx.arc(hx, hy, fr, 0, 6.283); ctx.stroke();
+        if (loop.big) { ctx.strokeStyle = `rgba(255,170,80,${fa * .8})`; ctx.lineWidth = 3 * fa; ctx.beginPath(); ctx.arc(hx, hy, fr * .6, 0, 6.283); ctx.stroke(); }
+        const g = ctx.createRadialGradient(hx, hy, 0, hx, hy, gr);
         g.addColorStop(0, `rgba(255,255,255,${fa * .9})`); g.addColorStop(1, "rgba(255,190,110,0)");
-        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(hx, hy, 60, 0, 6.283); ctx.fill();
-        loop.flash -= .025;
+        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(hx, hy, gr, 0, 6.283); ctx.fill();
+        loop.flash -= loop.big ? .016 : .025;
       }
     }
     loop.boost *= .97;
@@ -1077,12 +1081,12 @@ function startSparks(ring, on) {
   }
   loop.raf = requestAnimationFrame(frame);
 }
-// Called on a win: wait for the star to travel to its new spot, then explode. firstWin keeps it dark until then.
-function sparkWin(firstWin, delay) {
+// Called on a win: hold the sparks while the star travels to its new spot, then explode (huge on a tier-up).
+function sparkWin(big, delay) {
   if (!sparkLoop) return;
   const loop = sparkLoop;
-  if (firstWin) loop.hold = true;
-  setTimeout(() => { if (sparkLoop === loop) loop.explode(); }, delay);
+  loop.hold = true;
+  setTimeout(() => { if (sparkLoop === loop) loop.explode(big); }, delay);
 }
 
 /* ---------- Hints: where short-priced bets usually come from ---------- */
@@ -1503,7 +1507,7 @@ function runAnim(a, s, ring) {
     const newTier = a.after.tier !== a.before.tier && a.after.streak > a.before.streak;
     const hit = a.after.reached && !a.before.reached;
     goRing(s.frac, { duration: 1.1, delay: .35 });
-    sparkWin(a.before.streak === 0, 1450);
+    sparkWin(newTier, 1450);
     setTimeout(() => ring.classList.add(newTier || hit ? "surge-big" : "surge"), 380);
     if (newTier) setTimeout(() => tierBurst(a.after.tier), 900);
     if (hit) setTimeout(() => { confetti(["#f5c518", "#ffe27a", "#e8a90c", "#fff3b0", "#c99700"], 240); toast("🚁 Chopper's here. You're off the rig!"); }, newTier ? 2800 : 900);
