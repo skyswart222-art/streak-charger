@@ -128,6 +128,8 @@ const friendRequest = id => rpc("friend_request", { target: id });
 const friendRespond = (id, accept) => rpc("friend_respond", { other: id, accept });
 const friendRemove = id => rpc("friend_remove", { other: id });
 const leaderboard = (scope, metric) => rpc("leaderboard", { scope, metric, lim: 50 });
+// A friend's bets on trackers they show to others, plus their live progress. null if you aren't friends.
+const friendBets = other => rpc("friend_bets", { other, lim: 60 });
 
 /* ---------- Chat ---------- */
 const myChats = () => rpc("my_chats");
@@ -270,6 +272,6 @@ addEventListener("online", () => latest && flush());
 addEventListener("pagehide", () => { if (latest) flush(); });
 
 window.Cloud = { configured, currentUser, onAuth, nameAvailable, signUp, signIn, signOut, resetPassword, setPassword,
-  getProfile, updateProfile, uploadAvatar, searchProfiles, myFriends, friendRequest, friendRespond, friendRemove, leaderboard, myChats, chatMessages, chatMarkRead, chatReact, feed, feedReact, sendMessage, uploadChatMedia, uploadSlip, mediaUrl, myGroups, groupMessages, groupMarkRead, groupReact, groupCreate, groupAdd, groupRename, groupLeave, groupPeople, sendGroupMessage, myChallenges, challengeCreate, challengeRespond, challengeWins, onChat, offChat, typingJoin, typingSend, typingLeave, typingTopic, load, fetchAll, prime, merge, readCache, writeCache, queue, flush, pending, nice,
+  getProfile, updateProfile, uploadAvatar, searchProfiles, myFriends, friendRequest, friendRespond, friendRemove, leaderboard, friendBets, myChats, chatMessages, chatMarkRead, chatReact, feed, feedReact, sendMessage, uploadChatMedia, uploadSlip, mediaUrl, myGroups, groupMessages, groupMarkRead, groupReact, groupCreate, groupAdd, groupRename, groupLeave, groupPeople, sendGroupMessage, myChallenges, challengeCreate, challengeRespond, challengeWins, onChat, offChat, typingJoin, typingSend, typingLeave, typingTopic, load, fetchAll, prime, merge, readCache, writeCache, queue, flush, pending, nice,
   get user() { return user; }, set onStatus(f) { onStatus = f; }, set onRejected(f) { onRejected = f; } };
 })();
