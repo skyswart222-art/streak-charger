@@ -569,6 +569,7 @@ function renderHome(anim) {
     <div class="list">${historyHTML(t, s)}</div>`;
   const ring = $("#ring");
   startFx(ring, shown, s.reached);
+  loadMyFlags();
   startSparks(ring, s.streak > 0 && !t.paused, nt && !s.reached ? Math.max(0, 4 - (nt.min - s.streak)) : 0, s.reached ? GOLD : nt || shown, s.reached ? GOLD : shown);
   $("#optBtn").onclick = () => openOptions(t);
   document.querySelectorAll("[data-bet]").forEach(el => el.onclick = () => openBet(t, el.dataset.bet));
@@ -603,8 +604,8 @@ function historyHTML(t, s) {
         <div class="ic">${icon}</div>
         <div class="main"><div class="t">${esc(b.text || b.sport)}</div>
           <div class="m"><span>${esc(b.sport)}</span><span>@ ${odds2(b.odds)}</span>${b.result === "pending" && rk ? `<span class="riskchip" style="--rc:${rk.c}">${rk.sym} ${rk.name}</span>` : ""}<span>· ${when(b.createdAt)}</span>
-          ${b.edits.length ? `<span class="edited">edited</span>` : ""}${locked ? `<span title="Details locked">🔒</span>` : ""}${b.link ? `<span>🔗</span>` : ""}${b.slip ? `<span title="Bet slip attached">🧾</span>` : ""}</div></div>
-        <div class="r">${right}</div></button>`;
+          ${b.edits.length ? `<span class="edited">edited</span>` : ""}${locked ? `<span title="Details locked">🔒</span>` : ""}${b.link ? `<span>🔗</span>` : ""}${b.slip ? `<span title="Bet slip attached">🧾</span>` : ""}${b.verified && b.result === "win" ? plaqueHTML() : ""}</div></div>
+        <div class="r">${right}</div>${betFlags[b.id] ? flagMarkHTML(betFlags[b.id]) : ""}</button>`;
   }).join("");
 }
 
@@ -1097,6 +1098,124 @@ function sparkWin(big, delay) {
   setTimeout(() => { if (sparkLoop === loop) loop.explode(big); }, delay);
 }
 
+/* ---------- Verified wins and flagged slips ----------
+   A win can be verified with a screenshot of the settled slip. The slip reader reads it on the phone,
+   looks for words like "Won" or "Paid", and checks the odds match the bet. The screenshot then stays
+   on the bet, where friends can open it, and the bet wears a gold VERIFIED plaque. Friends can flag a
+   slip that looks edited, which puts a red "!" on the bet for everyone who can see it. */
+const WON_RE = /\b(won|winner|winning bet|paid( out)?|collected|result:? ?win)\b/i;
+const NOT_WON_RE = /\b(to win|potential|estimated|est\.|possible|would|if (it )?wins)\b/i;
+const LOST_RE = /\b(lost|losing|unsuccessful|loser)\b/i;
+function slipVerdict(raw) {
+  let won = false, lost = false;
+  for (const l of String(raw || "").split("\n")) {
+    if (WON_RE.test(l) && !NOT_WON_RE.test(l)) won = true;
+    if (LOST_RE.test(l)) lost = true;
+  }
+  return won ? "won" : lost ? "lost" : "";
+}
+function slipHasOdds(r, odds) {
+  const seen = (String(r.raw || "").replace(/(\d),(\d{2})\b/g, "$1.$2").match(/\d{1,4}\.\d{1,3}/g) || []).map(Number);
+  if (r.odds) seen.push(r.odds);
+  return seen.some(v => v > 1 && Math.abs(v - odds) <= Math.max(.02, odds * .01));
+}
+async function sha256(file) {
+  const buf = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
+  return Array.from(new Uint8Array(buf), x => x.toString(16).padStart(2, "0")).join("");
+}
+// Returns null when verified, or a message saying why not.
+async function verifyWin(b, file, onStage) {
+  if (!window.SlipReader) return "The slip reader isn't available right now. Try again in a moment.";
+  let r;
+  try { r = await SlipReader.read(file, onStage); }
+  catch (x) { return x && x.code === "image_rejected" ? "That file couldn't be opened. Try a PNG or JPG screenshot." : "The slip reader couldn't load. Check your connection and try again."; }
+  const v = slipVerdict(r.raw);
+  if (v === "lost") return "That slip looks like a loss, so it can't verify a win.";
+  if (!v) return "Couldn't see that this bet won. Use a screenshot of the settled bet that shows Won or Paid.";
+  if (!slipHasOdds(r, b.odds)) return `Couldn't find odds of ${odds2(b.odds)} on that slip. Make sure it's the slip for this bet.`;
+  onStage && onStage("save");
+  try {
+    const hash = await sha256(file);
+    const { blob } = await shrinkPhoto(file);
+    const path = await Cloud.uploadProof(blob);
+    const at = await Cloud.verifyBet(b.id, path, hash);
+    for (const t of state.trackers) { const x = t.bets.find(y => y.id === b.id); if (x) { x.proof = path; x.verified = at; } }
+    b.proof = path; b.verified = at; save();
+    return null;
+  } catch (x) {
+    const m = Cloud.nice(x);
+    return /verify_bet/.test(m) ? "Verifying needs the latest database update." : m;
+  }
+}
+const plaqueHTML = (big) => `<span class="vplaque ${big ? "lg" : ""}" title="Verified win: the winning slip was checked"><span>${big ? "✦ VERIFIED ✦" : "VERIFIED"}</span></span>`;
+const flagMarkHTML = n => `<i class="bet-flag" title="${n === 1 ? "A friend has" : n + " friends have"} flagged this slip as suspicious">!</i>`;
+const proofBtnHTML = p => `<button class="slip proof" data-photo="${esc(p)}" aria-label="Open the winning slip"><img data-media="${esc(p)}" alt=""><span><b>🏅 Winning slip</b><small>Tap to view</small></span></button>`;
+const flagNote = n => n ? `<div class="flag-note">${flagMarkHTML(n)}<span>${n === 1 ? "A friend has" : n + " friends have"} flagged this slip as suspicious.</span></div>` : "";
+
+// Flags on your own bets, checked at most once a minute while you're on the home screen.
+let betFlags = {}, betFlagsAt = 0;
+async function loadMyFlags() {
+  if (localMode || !Cloud.user || Date.now() - betFlagsAt < 60000) return;
+  betFlagsAt = Date.now();
+  let f;
+  try { f = await Cloud.myBetFlags(); } catch (x) { return; }
+  betFlags = f || {};
+  document.querySelectorAll(".bet[data-bet]").forEach(el => {
+    const n = betFlags[el.dataset.bet], i = el.querySelector(".bet-flag");
+    if (n && !i) el.insertAdjacentHTML("beforeend", flagMarkHTML(n)); else if (!n && i) i.remove();
+  });
+}
+
+function verifyHTML(b) {
+  if (localMode || !Cloud.user) return "";
+  const flag = flagNote(betFlags[b.id] || 0);
+  if (b.verified && b.result === "win") return `<div class="verify-box on">${plaqueHTML(true)}<small>Winning slip checked ${when(b.verified)}. Friends can open it.</small>${b.proof ? proofBtnHTML(b.proof) : ""}</div>${flag}`;
+  if (b.result !== "win" || b.proof) return (b.proof ? proofBtnHTML(b.proof) : "") + flag;
+  return `<div class="verify-box"><button class="btn gold-btn" data-verify>🏅 Verify this win</button>
+    <small id="vMsg">Add a screenshot of the settled bet showing it won. The app checks it on your phone, then friends can see it.</small>
+    <input type="file" accept="image/*" id="verifyFile" hidden></div>${flag}`;
+}
+function wireVerify(sh, t, b) {
+  sh.querySelectorAll(".slip.proof img").forEach(img => Cloud.mediaUrl(img.dataset.media).then(u => { img.src = u; }).catch(() => img.closest(".slip").classList.add("broken")));
+  const go = sh.querySelector("[data-verify]"), f = sh.querySelector("#verifyFile"), msg = sh.querySelector("#vMsg");
+  if (!go) return;
+  go.onclick = () => f.click();
+  f.onchange = async () => {
+    const file = f.files && f.files[0]; f.value = "";
+    if (!file) return;
+    go.disabled = true; go.textContent = "Checking slip…"; msg.classList.remove("bad");
+    const stage = { prep: "Reading your slip…", load: "Getting the slip reader ready. The first time takes a few seconds…", read: "Reading your slip…", save: "It's a winner. Saving…" };
+    const err = await verifyWin(b, file, k => { if (sh.isConnected) msg.textContent = stage[k] || msg.textContent; });
+    if (!sh.isConnected) { if (!err) { toast("🏅 Win verified"); if (!scrim) render(); } return; }
+    if (err) { msg.textContent = err; msg.classList.add("bad"); go.disabled = false; go.textContent = "🏅 Try another screenshot"; return; }
+    toast("🏅 Win verified"); closeSheet(); render(); openBet(t, b.id);
+  };
+}
+
+// On a friend's bet: flag the slip, or take your flag back.
+function friendFlagHTML(b) {
+  if (!b.slip && !b.proof) return "";
+  const n = Number(b.flags) || 0;
+  return `<div class="fbet-flag"><button class="btn sec ${b.my_flag ? "on" : ""}" data-flag>${b.my_flag ? "Remove your flag" : "🚩 Flag as suspicious"}</button>
+    <small>${n ? `${n === 1 ? "1 friend has" : n + " friends have"} flagged this slip.` : "Looks edited or fake? Flag it and a red ! shows on the bet."}</small></div>`;
+}
+function wireFriendFlags(box, bets) {
+  box.querySelectorAll("[data-flag]").forEach(btn => btn.onclick = async () => {
+    const el = btn.closest(".fbet"), b = bets.find(x => x.id === el.dataset.fbet);
+    if (!b) return;
+    btn.disabled = true;
+    try { b.flags = await Cloud.flagBet(b.id, !b.my_flag); b.my_flag = !b.my_flag; }
+    catch (x) { btn.disabled = false; return toast(/flag_bet/.test(Cloud.nice(x)) ? "Flagging needs the latest database update." : Cloud.nice(x), "bad"); }
+    el.querySelector(".fbet-flag").outerHTML = friendFlagHTML(b);
+    const mark = el.querySelector(".fbet-head .bet-flag");
+    if (b.flags && !mark) el.querySelector(".fbet-head").insertAdjacentHTML("beforeend", flagMarkHTML(b.flags));
+    else if (mark && !b.flags) mark.remove();
+    else if (mark) mark.outerHTML = flagMarkHTML(b.flags);
+    wireFriendFlags(el, [b]);
+    toast(b.my_flag ? "🚩 Flagged. Thanks for keeping it honest." : "Flag removed");
+  });
+}
+
 /* ---------- Hints: where short-priced bets usually come from ---------- */
 // General patterns, not tips on any game. Each one has the trap to check before betting it.
 const HINTS = [
@@ -1450,6 +1569,7 @@ function openBet(t, id) {
     </div>
     ${b.link ? `<p style="margin:-4px 0 16px;font-size:14px">🔗 <a class="link" href="${esc(b.link)}" target="_blank" rel="noopener">${esc(b.link)}</a></p>` : ""}
     ${slipHTML(b)}
+    ${verifyHTML(b)}
     <div class="field"><label for="eOdds">Odds · editable any time</label><input id="eOdds" inputmode="decimal" value="${b.odds}"></div>
     <div class="field"><label for="eText">Bet</label><input id="eText" maxlength="60" value="${esc(b.text)}" ${detailsOpen ? "" : "disabled"}></div>
     <div class="field" id="eSportWrap"><label for="eSport">Sport</label><input id="eSport" autocomplete="off"><span class="picked"></span></div>
@@ -1462,6 +1582,7 @@ function openBet(t, id) {
     <div class="history">${b.edits.length ? `<ul>${b.edits.slice().reverse().map(e => `<li><b>${when(e.at)}</b>: ${e.changes.map(c => `${esc(c.field)} ${esc(c.from)} → ${esc(c.to)}`).join("; ")}</li>`).join("")}</ul>` : `<div class="hint" style="font-size:13px">No edits. Every change is listed here.</div>`}</div>`);
   const picker = sportPicker(sh.querySelector("#eSportWrap"), b.sport, !detailsOpen);
   wireSlip(sh, t, b);
+  wireVerify(sh, t, b);
   wireDelBet(sh, t, b);
   sh.querySelectorAll("[data-res]").forEach(btn => btn.onclick = () => {
     const res = btn.dataset.res;
@@ -2079,18 +2200,20 @@ function liveCardHTML(l, p) {
     <div class="note" style="margin:8px 0 0">Started at ${moneyShort(l.start)}, chasing ${moneyShort(l.target)}${l.streak ? ` with ${plural(l.streak, "win")} in a row` : ""}.</div></div>`;
 }
 const RES = { win: ["✅", "Won"], loss: ["❌", "Lost"], pending: ["⏳", "In play"] };
-function friendBetHTML(b) {
+function friendBetHTML(b, mine) {
   const r = RES[b.result] || ["🎟️", ""];
   return `<div class="fbet ${b.result}" data-fbet="${esc(b.id)}">
     <button class="fbet-head" data-fbettoggle><span class="fbet-ic">${r[0]}</span>
       <span class="fbet-main"><b>${esc(b.text)}</b><small>${esc(b.sport)} · ${esc(b.tracker)} · ${when(Number(b.created_at))}</small></span>
-      <span class="fbet-odds">${b.slip ? "🧾 " : ""}@ ${odds2(b.odds)}</span></button>
+      <span class="fbet-odds">${b.verified_at && b.result === "win" ? plaqueHTML() : b.slip ? "🧾 " : ""}@ ${odds2(b.odds)}</span>${Number(b.flags) ? flagMarkHTML(Number(b.flags)) : ""}</button>
     <div class="fbet-more" hidden>
       <div class="fbet-kv"><span>Result</span><b>${r[0]} ${r[1]}</b><span>Odds</span><b>${odds2(b.odds)}</b><span>Sport</span><b>${esc(b.sport)}</b>
         <span>Tracker</span><b><i class="fbet-dot" style="background:${esc(b.accent || "var(--accent)")}"></i>${esc(b.tracker)}</b>
         <span>Logged</span><b>${when(Number(b.created_at))}</b>${b.settled_at ? `<span>Settled</span><b>${when(Number(b.settled_at))}</b>` : ""}</div>
       ${b.link && /^https?:\/\//i.test(b.link) ? `<a class="btn sec fbet-link" href="${esc(b.link)}" target="_blank" rel="noopener">🔗 Open bet link</a>` : ""}
-      ${b.slip ? `<button class="slip" data-photo="${esc(b.slip)}" aria-label="Open bet slip"><img data-media="${esc(b.slip)}" alt=""><span><b>🧾 Bet slip</b><small>Tap to view</small></span></button>` : `<div class="cap" style="margin:0">No slip photo on this one.</div>`}
+      ${b.proof ? proofBtnHTML(b.proof) : ""}
+      ${b.slip ? `<button class="slip" data-photo="${esc(b.slip)}" aria-label="Open bet slip"><img data-media="${esc(b.slip)}" alt=""><span><b>🧾 Bet slip</b><small>Tap to view</small></span></button>` : b.proof ? "" : `<div class="cap" style="margin:0">No slip photo on this one.</div>`}
+      ${mine ? "" : friendFlagHTML(b)}
     </div></div>`;
 }
 async function loadFriendBets(sh, p) {
@@ -2102,13 +2225,14 @@ async function loadFriendBets(sh, p) {
   if (!d) { box.innerHTML = `<div class="cap" style="margin:0">Only friends can see each other's bets.</div>`; return; }
   const lv = sh.querySelector("#fLive"); if (lv) lv.innerHTML = liveCardHTML(d.live, p);
   const bets = d.bets || [];
-  box.innerHTML = bets.length ? bets.map(friendBetHTML).join("") : `<div class="cap" style="margin:0">No bets to show yet. Bets on trackers ${esc(p.display_name)} keeps private don't show here.</div>`;
+  const mine = Cloud.user && p.id === Cloud.user.id;
+  box.innerHTML = bets.length ? bets.map(b => friendBetHTML(b, mine)).join("") : `<div class="cap" style="margin:0">No bets to show yet. Bets on trackers ${esc(p.display_name)} keeps private don't show here.</div>`;
   box.querySelectorAll("[data-fbettoggle]").forEach(h => h.onclick = () => {
     const el = h.closest(".fbet"), more = el.querySelector(".fbet-more");
     more.hidden = !more.hidden; el.classList.toggle("open", !more.hidden);
-    const img = more.querySelector(".slip img:not([src])");
-    if (img && !more.hidden) Cloud.mediaUrl(img.dataset.media).then(u => { img.src = u; }).catch(() => img.closest(".slip").classList.add("broken"));
+    if (!more.hidden) more.querySelectorAll(".slip img:not([src])").forEach(img => Cloud.mediaUrl(img.dataset.media).then(u => { img.src = u; }).catch(() => img.closest(".slip").classList.add("broken")));
   });
+  wireFriendFlags(box, bets);
 }
 
 /* ---------- Leaderboard ----------
