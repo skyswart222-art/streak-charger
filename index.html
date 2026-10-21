@@ -784,6 +784,11 @@ html { touch-action: manipulation; -webkit-text-size-adjust: 100%; text-size-adj
 .fbet-link { margin-bottom: 12px; text-decoration: none; text-align: center; }
 .fbet-more .slip { margin: 0; }
 
+/* Sheet close button: stays at the top right while the sheet scrolls */
+.sheet-bar { position: sticky; top: 0; z-index: 5; height: 0; display: flex; justify-content: flex-end; }
+.sheet-x { width: 34px; height: 34px; margin-right: -6px; border-radius: 50%; border: 1px solid var(--stroke); background: color-mix(in srgb, var(--sheet) 80%, transparent); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); color: var(--fg); font-size: 15px; line-height: 1; cursor: pointer; }
+.grab { cursor: pointer; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
   .stamp, .x-mark, .glass-fx .hg, .glass-fx .rk, .tierburst { animation: fadeQuick 1.2s forwards !important; }

@@ -1101,10 +1101,25 @@ let scrim = null;
 function openSheet(html, cls = "") {
   closeSheet();
   scrim = document.createElement("div"); scrim.className = "scrim";
-  scrim.innerHTML = `<div class="sheet ${cls}" role="dialog" aria-modal="true"><div class="grab"></div>${html}</div>`;
-  scrim.addEventListener("click", e => { if (e.target === scrim) closeSheet(); });
+  scrim.innerHTML = `<div class="sheet ${cls}" role="dialog" aria-modal="true"><div class="sheet-bar"><button class="sheet-x" aria-label="Close">✕</button></div><div class="grab"></div>${html}</div>`;
+  scrim.addEventListener("click", e => { if (e.target === scrim || e.target.closest(".sheet-x, .grab")) closeSheet(); });
   document.body.appendChild(scrim);
-  return scrim.querySelector(".sheet");
+  const sh = scrim.querySelector(".sheet");
+  // Pull down from the top of the sheet to close it.
+  let y0 = null, dy = 0;
+  sh.addEventListener("touchstart", e => { y0 = sh.scrollTop <= 0 && e.touches.length === 1 ? e.touches[0].clientY : null; dy = 0; }, { passive: true });
+  sh.addEventListener("touchmove", e => {
+    if (y0 === null) return;
+    dy = e.touches[0].clientY - y0;
+    if (dy <= 0 || sh.scrollTop > 0) { if (dy < 0) y0 = null; sh.style.transform = ""; return; }
+    e.preventDefault(); sh.style.transition = "none"; sh.style.transform = `translateY(${dy}px)`;
+  }, { passive: false });
+  sh.addEventListener("touchend", () => {
+    if (y0 === null) return; y0 = null;
+    if (dy > 90) return closeSheet();
+    sh.style.transition = "transform .2s"; sh.style.transform = "";
+  });
+  return sh;
 }
 function closeSheet() { if (scrim) { scrim.dispatchEvent(new Event("closing")); scrim.remove(); scrim = null; } }
 document.addEventListener("keydown", e => { if (e.key === "Escape") closeSheet(); });
