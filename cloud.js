@@ -268,10 +268,17 @@ async function flush() {
   try { await running; } finally { running = null; if (again) { again = false; flush(); } }
 }
 const pending = () => !!(timer || running || (readCache() || {}).dirty);
+// Deleting goes straight to the server. The database only lets a bet go while it's pending.
+async function deleteBet(id) { must(await sb.from("bets").delete().eq("id", id)); synced.delete("bets:" + id); }
+async function deleteTracker(t) {
+  must(await sb.from("trackers").delete().eq("id", t.id));
+  synced.delete("trackers:" + t.id);
+  t.bets.forEach(b => synced.delete("bets:" + b.id)); t.actions.forEach(a => synced.delete("tracker_actions:" + a.id));
+}
 addEventListener("online", () => latest && flush());
 addEventListener("pagehide", () => { if (latest) flush(); });
 
 window.Cloud = { configured, currentUser, onAuth, nameAvailable, signUp, signIn, signOut, resetPassword, setPassword,
-  getProfile, updateProfile, uploadAvatar, searchProfiles, myFriends, friendRequest, friendRespond, friendRemove, leaderboard, friendBets, myChats, chatMessages, chatMarkRead, chatReact, feed, feedReact, sendMessage, uploadChatMedia, uploadSlip, mediaUrl, myGroups, groupMessages, groupMarkRead, groupReact, groupCreate, groupAdd, groupRename, groupLeave, groupPeople, sendGroupMessage, myChallenges, challengeCreate, challengeRespond, challengeWins, onChat, offChat, typingJoin, typingSend, typingLeave, typingTopic, load, fetchAll, prime, merge, readCache, writeCache, queue, flush, pending, nice,
+  getProfile, updateProfile, uploadAvatar, searchProfiles, myFriends, friendRequest, friendRespond, friendRemove, leaderboard, friendBets, myChats, chatMessages, chatMarkRead, chatReact, feed, feedReact, sendMessage, uploadChatMedia, uploadSlip, mediaUrl, myGroups, groupMessages, groupMarkRead, groupReact, groupCreate, groupAdd, groupRename, groupLeave, groupPeople, sendGroupMessage, myChallenges, challengeCreate, challengeRespond, challengeWins, onChat, offChat, typingJoin, typingSend, typingLeave, typingTopic, deleteBet, deleteTracker, load, fetchAll, prime, merge, readCache, writeCache, queue, flush, pending, nice,
   get user() { return user; }, set onStatus(f) { onStatus = f; }, set onRejected(f) { onRejected = f; } };
 })();

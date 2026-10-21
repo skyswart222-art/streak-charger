@@ -1308,3 +1308,32 @@ $$;
 
 -- Work out everyone's progress once, so it shows straight away.
 select public.recompute_profile_stats(id) from public.profiles;
+
+-- =========================================================
+-- Stage 13: deleting pending bets and whole trackers
+-- =========================================================
+-- A pending bet can be deleted. A settled bet stays for good, unless you delete the whole tracker it's on.
+create or replace function public.guard_bet_delete() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if exists (select 1 from auth.users u where u.id = old.user_id)
+     and exists (select 1 from public.trackers t where t.id = old.tracker_id)
+     and old.result <> 'pending' then
+    raise exception 'Only a pending bet can be deleted. Settled bets stay on your record.';
+  end if;
+  -- A chat message that was only this bet keeps a note instead of going blank.
+  update public.messages set body = '🎟️ Bet deleted' where bet_id = old.id and length(trim(body)) = 0 and media_path is null;
+  update public.group_messages set body = '🎟️ Bet deleted' where bet_id = old.id and length(trim(body)) = 0 and media_path is null;
+  return old;
+end $$;
+
+drop policy if exists "delete own pending bets" on public.bets;
+create policy "delete own pending bets" on public.bets for delete to authenticated using (user_id = auth.uid());
+drop policy if exists "delete own trackers" on public.trackers;
+create policy "delete own trackers" on public.trackers for delete to authenticated using (user_id = auth.uid());
+
+-- Streaks, leaderboards and progress bars are worked out again after anything is deleted.
+drop trigger if exists bets_stats_delete on public.bets;
+create trigger bets_stats_delete after delete on public.bets referencing old table as changed for each statement execute function public.after_activity_change();
+drop trigger if exists trackers_stats_delete on public.trackers;
+create trigger trackers_stats_delete after delete on public.trackers referencing old table as changed for each statement execute function public.after_activity_change();

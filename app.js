@@ -1162,7 +1162,8 @@ function openOptions(t, isNew) {
       <button class="btn sec" id="pauseBtn">${t.paused ? "▶️ Resume run" : "⏸ Pause run"}</button>
       <button class="btn warn" id="endBtn" ${canMove ? "" : "disabled"}>🏁 End run and cash out ${money(s.balance)}</button>
     </div>
-    <div class="note" style="margin:8px 0 0">Ending a run banks the whole balance and starts run ${s.current.n + 1} from ${money(t.start)}.</div>`}`);
+    <div class="note" style="margin:8px 0 0">Ending a run banks the whole balance and starts run ${s.current.n + 1} from ${money(t.start)}.</div>
+    ${delTrackerHTML(t)}`}`);
   const paint = () => {
     sh.querySelectorAll("[data-m]").forEach(b => b.classList.toggle("on", b.dataset.m === mode));
     sh.querySelectorAll("[data-c]").forEach(b => b.classList.toggle("on", b.dataset.c === accent));
@@ -1215,6 +1216,7 @@ function openOptions(t, isNew) {
     const fresh = evalAchievements(); save(); closeSheet(); render({ type: "end", from: s.frac, amt: s.balance });
     announce(fresh);
   };
+  wireDelTracker(sh, t);
 }
 
 /* ---------- Sport picker ---------- */
@@ -1372,10 +1374,12 @@ function openBet(t, id) {
     <div class="note">${detailsOpen ? `Bet, sport and link lock in ${dur(b.createdAt + DAY - now)}.` : "🔒 Bet, sport and link are locked. Odds can still be fixed."}</div>
     <div class="err" id="eErr"></div>
     <button class="btn sec" id="eSave">Save changes</button>
+    ${delBetHTML(b)}
     <h4>Edit history</h4>
-    <div class="history">${b.edits.length ? `<ul>${b.edits.slice().reverse().map(e => `<li><b>${when(e.at)}</b>: ${e.changes.map(c => `${esc(c.field)} ${esc(c.from)} → ${esc(c.to)}`).join("; ")}</li>`).join("")}</ul>` : `<div class="hint" style="font-size:13px">No edits. Bets can't be deleted, and every change is listed here.</div>`}</div>`);
+    <div class="history">${b.edits.length ? `<ul>${b.edits.slice().reverse().map(e => `<li><b>${when(e.at)}</b>: ${e.changes.map(c => `${esc(c.field)} ${esc(c.from)} → ${esc(c.to)}`).join("; ")}</li>`).join("")}</ul>` : `<div class="hint" style="font-size:13px">No edits. Every change is listed here.</div>`}</div>`);
   const picker = sportPicker(sh.querySelector("#eSportWrap"), b.sport, !detailsOpen);
   wireSlip(sh, t, b);
+  wireDelBet(sh, t, b);
   sh.querySelectorAll("[data-res]").forEach(btn => btn.onclick = () => {
     const res = btn.dataset.res;
     if (res === b.result) return;
@@ -1766,6 +1770,8 @@ function renderProfile() {
       ${device ? `<button class="btn sec" id="imDevice" style="margin-top:8px">Import ${importSummary(device)} from this device</button>` : ""}
     </div>
     <div class="glass card"><button class="btn sec" data-nav="awards">🎨 Themes and awards</button></div>
+    <div class="glass card"><h3>Your trackers</h3><div class="cap">Deleting a tracker removes it and all its bets for good.</div>
+      <div class="ptrk">${state.trackers.map(t => `<div class="ptrk-row"><span class="ptrk-dot" style="background:${esc(t.accent)}"></span><span class="ptrk-name"><b>${esc(t.name)}</b><small>${plural(t.bets.length, "bet")}${t.shared === false ? " · 🔒 private" : ""}</small></span><button class="ptrk-del" data-pdel="${t.id}" aria-label="Delete ${esc(t.name)}">🗑 Delete</button></div>`).join("")}</div></div>
     <button class="btn warn" id="signOut" style="margin-top:14px">Log out</button>`;
   $("#avFile").onchange = async e => {
     const f = e.target.files && e.target.files[0]; e.target.value = ""; if (!f) return;
@@ -1782,6 +1788,16 @@ function renderProfile() {
     catch (x) { h.textContent = Cloud.nice(x); h.className = "hint bad"; }
   };
   $("#pShare").onclick = shareStats;
+  document.querySelectorAll("[data-pdel]").forEach(btn => {
+    let armed = false;
+    btn.onclick = async () => {
+      const t = state.trackers.find(x => x.id === btn.dataset.pdel); if (!t) return;
+      if (!armed) { armed = true; btn.textContent = "Tap again"; btn.classList.add("armed"); return; }
+      btn.disabled = true;
+      if (!(await cloudDelete(() => Cloud.deleteTracker(t)))) { btn.disabled = false; return; }
+      dropTrackers([t.id]); save(); render(); toast(`${t.name} deleted.`);
+    };
+  });
   $("#bkCopy").onclick = copyBackup;
   $("#bkRestore").onclick = openRestore;
   if ($("#imDevice")) $("#imDevice").onclick = () => importData(device, "device");
@@ -2864,6 +2880,50 @@ function paintTyping() {
   const el = $("#typing"); if (!el) return;
   const html = typingLine(); el.innerHTML = html; el.hidden = !html;
   clearInterval(typingTick); typingTick = html ? setInterval(paintTyping, 1000) : null;
+}
+
+/* ---------- Deleting ----------
+   A pending bet can be deleted; settled bets stay. A whole tracker can be deleted with everything on it.
+   The database checks the same rules. */
+const canDelBet = b => b.result === "pending";
+async function cloudDelete(fn) {
+  if (localMode || !Cloud.user) return true;
+  try { await Cloud.flush(); await fn(); return true; } catch (x) { toast(Cloud.nice(x), "bad"); return false; }
+}
+function delBetHTML(b) {
+  if (!canDelBet(b)) return "";
+  return `<button class="btn warn" id="eDel" style="margin-top:8px">🗑 Delete this bet</button><div class="note" style="margin:6px 0 0">Pending bets can be deleted. Once settled, a bet stays on your record.</div>`;
+}
+function wireDelBet(sh, t, b) {
+  const btn = sh.querySelector("#eDel"); if (!btn) return;
+  let armed = false;
+  btn.onclick = async () => {
+    if (!armed) { armed = true; btn.textContent = "Tap again to delete it for good"; return; }
+    btn.disabled = true;
+    if (!(await cloudDelete(() => Cloud.deleteBet(b.id)))) { btn.disabled = false; return; }
+    t.bets = t.bets.filter(x => x.id !== b.id);
+    save(); closeSheet(); render(); toast("Bet deleted.");
+  };
+}
+function delTrackerHTML(t) {
+  return `<h4>Delete</h4><button class="btn warn" id="delTracker">🗑 Delete this tracker</button>
+    <div class="note" style="margin:8px 0 0">Removes ${esc(t.name)} and its ${plural(t.bets.length, "bet")} for good, including from friends' feeds and leaderboards.</div>`;
+}
+function dropTrackers(ids) {
+  state.trackers = state.trackers.filter(t => !ids.includes(t.id));
+  if (!state.trackers.length) state.trackers.push(newTracker(1));
+  if (!state.trackers.some(t => t.id === state.activeId)) state.activeId = state.trackers[0].id;
+}
+function wireDelTracker(sh, t) {
+  const btn = sh.querySelector("#delTracker"); if (!btn) return;
+  let armed = false;
+  btn.onclick = async () => {
+    if (!armed) { armed = true; btn.textContent = `Tap again to delete ${t.name} for good`; return; }
+    btn.disabled = true;
+    if (!(await cloudDelete(() => Cloud.deleteTracker(t)))) { btn.disabled = false; return; }
+    dropTrackers([t.id]);
+    save(); closeSheet(); render(); toast(`${t.name} deleted.`);
+  };
 }
 
 /* =========================================================
