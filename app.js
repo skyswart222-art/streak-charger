@@ -1772,7 +1772,6 @@ function renderProfile() {
     <div class="glass card"><button class="btn sec" data-nav="awards">🎨 Themes and awards</button></div>
     <div class="glass card"><h3>Your trackers</h3><div class="cap">Deleting a tracker removes it and all its bets for good.</div>
       <div class="ptrk">${state.trackers.map(t => `<div class="ptrk-row"><span class="ptrk-dot" style="background:${esc(t.accent)}"></span><span class="ptrk-name"><b>${esc(t.name)}</b><small>${plural(t.bets.length, "bet")}${t.shared === false ? " · 🔒 private" : ""}</small></span><button class="ptrk-del" data-pdel="${t.id}" aria-label="Delete ${esc(t.name)}">🗑 Delete</button></div>`).join("")}</div></div>
-    <div class="glass card"><h3>Start fresh</h3><div class="cap">Deletes all your trackers and bets and resets your awards, for good. Your account, friends and chats stay.</div><button class="btn warn" id="pFresh">🧹 Start fresh</button></div>
     <button class="btn warn" id="signOut" style="margin-top:14px">Log out</button>`;
   $("#avFile").onchange = async e => {
     const f = e.target.files && e.target.files[0]; e.target.value = ""; if (!f) return;
@@ -1799,12 +1798,6 @@ function renderProfile() {
       dropTrackers([t.id]); save(); render(); toast(`${t.name} deleted.`);
     };
   });
-  let freshArmed = false;
-  $("#pFresh").onclick = e => {
-    const nb = state.trackers.reduce((a, t) => a + t.bets.length, 0);
-    if (!freshArmed) { freshArmed = true; e.currentTarget.textContent = `Tap again to delete ${plural(state.trackers.length, "tracker")} and ${plural(nb, "bet")}`; return; }
-    startFresh();
-  };
   $("#bkCopy").onclick = copyBackup;
   $("#bkRestore").onclick = openRestore;
   if ($("#imDevice")) $("#imDevice").onclick = () => importData(device, "device");
@@ -2931,13 +2924,6 @@ function wireDelTracker(sh, t) {
     dropTrackers([t.id]);
     save(); closeSheet(); render(); toast(`${t.name} deleted.`);
   };
-}
-async function startFresh() {
-  const all = state.trackers.slice();
-  for (const t of all) if (!(await cloudDelete(() => Cloud.deleteTracker(t)))) return render();
-  dropTrackers(all.map(t => t.id));
-  state.achievements = {}; state.bestStreak = 0;
-  save(); render(); toast("All clear. You're starting fresh.");
 }
 
 /* =========================================================
