@@ -569,7 +569,7 @@ function renderHome(anim) {
     <div class="list">${historyHTML(t, s)}</div>`;
   const ring = $("#ring");
   startFx(ring, shown, s.reached);
-  startSparks(ring, s.streak > 0 && !t.paused, nt && !s.reached ? Math.max(0, 3 - (nt.min - s.streak)) : 0);
+  startSparks(ring, s.streak > 0 && !t.paused, nt && !s.reached ? Math.max(0, 4 - (nt.min - s.streak)) : 0, s.reached ? GOLD : nt || shown, s.reached ? GOLD : shown);
   $("#optBtn").onclick = () => openOptions(t);
   document.querySelectorAll("[data-bet]").forEach(el => el.onclick = () => openBet(t, el.dataset.bet));
   const fab = $("#fab");
@@ -1017,27 +1017,32 @@ function renderAwards() {
 
 /* ---------- Arc star sparks ----------
    Every win makes the emblem riding the tier progress ring explode (the bet arc star when there is no next tier), and a tier-up makes a huge one.
-   Grinder sparks keep falling off it only near a tier-up: level 1 at 2 wins to go, level 2 (fierce) at 1 to go.
+   Grinder sparks keep falling off it only near a tier-up, building up: level 1 (light) at 3 wins to go, 2 at 2 to go, 3 (fierce) at 1 to go.
+   Sparks start just outside the emblem's circle so the emoji stays visible, and take the tier's colours.
    No wins (or a paused run) means no sparks at all. */
 let sparkLoop = null;
 function stopSparks() { if (sparkLoop) { cancelAnimationFrame(sparkLoop.raf); sparkLoop.cv.remove(); sparkLoop = null; } }
-function startSparks(ring, on, level) {
+const hexRGB = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+function startSparks(ring, on, level, col, bigCol) {
   stopSparks();
   if (reduced || !on) return;
   const cv = document.createElement("canvas"); cv.className = "arc-sparks"; document.body.appendChild(cv);
   const ctx = cv.getContext("2d"), ps = [];
   const loop = { cv, raf: 0, hold: false, boost: 0, flash: 0, big: false };
-  const fierce = level >= 2;
+  const fierce = level >= 3, rate = [0, .3, .9, 2][level] || 0;
+  const pal = c => [hexRGB(c.c1), hexRGB(c.c2)], flowPal = pal(col), bigPal = pal(bigCol || col);
   sparkLoop = loop;
   let W = 0, H = 0, acc = 0;
   const size = () => { const d = Math.min(2, devicePixelRatio || 1); W = innerWidth; H = innerHeight; cv.width = W * d; cv.height = H * d; ctx.setTransform(d, 0, 0, d, 0, 0); };
   size(); addEventListener("resize", size);
   const rnd = (a, b) => a + Math.random() * (b - a);
-  const spray = (x, y, tx, ty, n, hard) => {
-    const kick = hard ? (loop.big ? 1.8 : 1) : (fierce ? 1.4 : 1) * (1 + loop.boost * .6);
+  const spray = (x, y, rad, tx, ty, n, hard) => {
+    const c = hard && loop.big ? bigPal : flowPal;
+    const kick = hard ? (loop.big ? 1.8 : 1) : (fierce ? 1.4 : level === 1 ? .8 : 1) * (1 + loop.boost * .6);
     for (let i = 0; i < n; i++) {
       const a = hard ? rnd(0, 6.283) : Math.atan2(ty, tx) + Math.PI + rnd(-.9, .9), v = (hard ? rnd(2, 7.5) : rnd(1.5, 4.5)) * kick;
-      ps.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - rnd(0, 1.5), g: hard ? .12 : .14, life: rnd(30, hard ? (loop.big ? 80 : 55) : 60), t: 0, w: rnd(1.2, fierce || loop.big ? 2.8 : 2.4), hue: rnd(28, fierce ? 58 : 52) });
+      const r0 = rad + v * 2 + 2;
+      ps.push({ x: x + Math.cos(a) * r0, y: y + Math.sin(a) * r0, c, vx: Math.cos(a) * v, vy: Math.sin(a) * v - rnd(0, 1.5), g: hard ? .12 : .14, life: rnd(30, hard ? (loop.big ? 80 : 55) : 60), t: 0, w: rnd(1.2, fierce || loop.big ? 2.8 : 2.4) });
     }
   };
   loop.explode = big => { loop.hold = false; loop.big = !!big; loop.boost = 1; loop.flash = 1; loop.pending = true; };
@@ -1047,22 +1052,23 @@ function startSparks(ring, on, level) {
     const head = ring.querySelector(".tier-mark circle") || ring.querySelector(".ring-head circle:last-of-type"), box = ring.getBoundingClientRect();
     const hb = head && head.getBoundingClientRect();
     if (hb && hb.width) {
-      const hx = hb.left + hb.width / 2, hy = hb.top + hb.height / 2, cx = box.left + box.width / 2, cy = box.top + box.height / 2;
+      const hx = hb.left + hb.width / 2, hy = hb.top + hb.height / 2, rad = hb.width / 2 + 1, cx = box.left + box.width / 2, cy = box.top + box.height / 2;
       const ang = Math.atan2(hy - cy, hx - cx), tx = -Math.sin(ang), ty = Math.cos(ang);
-      if (loop.pending) { loop.pending = false; spray(hx, hy, tx, ty, loop.big ? 180 : 60, true); }
+      if (loop.pending) { loop.pending = false; spray(hx, hy, rad, tx, ty, loop.big ? 180 : 60, true); }
       if (level && !loop.hold && hy > -40 && hy < H + 40) {
-        acc += (fierce ? 2 : .8) * (1 + loop.boost * 4); let n = Math.floor(acc); acc -= n;
-        if (Math.random() < (fierce ? .06 : .03)) n += Math.floor(rnd(4, fierce ? 14 : 9));
-        if (n) spray(hx, hy, tx, ty, n, false);
+        acc += rate * (1 + loop.boost * 4); let n = Math.floor(acc); acc -= n;
+        if (Math.random() < [0, .01, .03, .06][level]) n += Math.floor(rnd(3, fierce ? 14 : 9));
+        if (n) spray(hx, hy, rad, tx, ty, n, false);
       }
       if (loop.flash > 0) {
-        const fa = loop.flash, sc = loop.big ? 2.6 : 1, fr = (1 - fa) * 90 * sc, gr = 60 * sc;
+        // A hollow flash: it starts at the emblem's edge so the emoji stays visible
+        const fa = loop.flash, sc = loop.big ? 2.6 : 1, fr = rad + (1 - fa) * 90 * sc, gr = rad + 60 * sc, [a1, a2] = loop.big ? bigPal : flowPal;
         ctx.globalCompositeOperation = "lighter";
-        ctx.strokeStyle = `rgba(255,236,190,${fa})`; ctx.lineWidth = (3 * fa + .5) * (loop.big ? 2 : 1); ctx.beginPath(); ctx.arc(hx, hy, fr, 0, 6.283); ctx.stroke();
-        if (loop.big) { ctx.strokeStyle = `rgba(255,170,80,${fa * .8})`; ctx.lineWidth = 3 * fa; ctx.beginPath(); ctx.arc(hx, hy, fr * .6, 0, 6.283); ctx.stroke(); }
-        const g = ctx.createRadialGradient(hx, hy, 0, hx, hy, gr);
-        g.addColorStop(0, `rgba(255,255,255,${fa * .9})`); g.addColorStop(1, "rgba(255,190,110,0)");
-        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(hx, hy, gr, 0, 6.283); ctx.fill();
+        ctx.strokeStyle = `rgba(${a1},${fa})`; ctx.lineWidth = (3 * fa + .5) * (loop.big ? 2 : 1); ctx.beginPath(); ctx.arc(hx, hy, fr, 0, 6.283); ctx.stroke();
+        if (loop.big) { ctx.strokeStyle = `rgba(${a2},${fa * .8})`; ctx.lineWidth = 3 * fa; ctx.beginPath(); ctx.arc(hx, hy, rad + (fr - rad) * .6, 0, 6.283); ctx.stroke(); }
+        const g = ctx.createRadialGradient(hx, hy, rad, hx, hy, gr);
+        g.addColorStop(0, `rgba(${a1},${fa * .8})`); g.addColorStop(1, `rgba(${a2},0)`);
+        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(hx, hy, gr, 0, 6.283); ctx.arc(hx, hy, rad, 0, 6.283, true); ctx.fill();
         loop.flash -= loop.big ? .016 : .025;
       }
     }
@@ -1073,7 +1079,9 @@ function startSparks(ring, on, level) {
       if (p.t > p.life || p.y > H + 20) { ps.splice(i, 1); continue; }
       const f = 1 - p.t / p.life, ox = p.x, oy = p.y;
       p.vy += p.g; p.vx *= .995; p.x += p.vx; p.y += p.vy;
-      ctx.strokeStyle = `hsla(${p.hue},100%,${60 + 30 * f}%,${f})`; ctx.lineWidth = p.w;
+      // Fresh sparks burn near-white in the tier's light colour, then cool to its deep colour
+      const m = (k, w) => Math.round((p.c[1][k] + (p.c[0][k] - p.c[1][k]) * f) * (1 - w) + 255 * w), w = f * f * .45;
+      ctx.strokeStyle = `rgba(${m(0, w)},${m(1, w)},${m(2, w)},${f})`; ctx.lineWidth = p.w;
       ctx.beginPath(); ctx.moveTo(ox - p.vx * 2, oy - p.vy * 2); ctx.lineTo(p.x, p.y); ctx.stroke();
     }
     ctx.globalCompositeOperation = "source-over";
