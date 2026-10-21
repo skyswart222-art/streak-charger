@@ -754,7 +754,6 @@ html { touch-action: manipulation; -webkit-text-size-adjust: 100%; text-size-adj
 .lbar { display: flex; flex-direction: column; gap: 4px; width: 100%; margin-top: 7px; }
 .lbar-track { position: relative; display: block; height: 8px; border-radius: 99px; background: color-mix(in srgb, var(--fg) 10%, transparent); overflow: hidden; }
 .lbar-track i { position: absolute; inset: 0 auto 0 0; border-radius: inherit; background: linear-gradient(90deg, var(--b2), var(--b1)); box-shadow: 0 0 10px color-mix(in srgb, var(--b1) 60%, transparent); transition: width .6s ease; }
-.lbar.live .lbar-track i::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255,255,255,.55), transparent); animation: lbar-shine 1.6s linear infinite; }
 @keyframes lbar-shine { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
 .lbar-cap { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--muted); white-space: nowrap; }
 .lbar-cap em { font-style: normal; color: var(--fg); font-weight: 700; }
@@ -810,6 +809,44 @@ html { touch-action: manipulation; -webkit-text-size-adjust: 100%; text-size-adj
 .lb-loss { animation: lb-loss .5s ease 2; }
 @keyframes lb-loss { 20% { translate: -6px 0; box-shadow: 0 0 0 2px #ff4d5e, 0 0 20px #ff4d5e; } 40% { translate: 6px 0; } 60% { translate: -4px 0; } 80% { translate: 3px 0; } }
 @media (prefers-reduced-motion: reduce) { .lbar-track i::before, .lbar.live .lbar-track i, .lb-win, .lb-loss { animation: none; } }
+
+/* Leaderboard rows: one card each, the same for everyone; the top three glow gold, silver and bronze */
+.lb-list { display: flex; flex-direction: column; gap: 10px; }
+.lb-list .lb-row, .lb-list .lb-row.me { position: relative; margin: 0; padding: 12px 14px 12px 10px; border-radius: 18px; border: 1px solid var(--stroke); background: var(--glass); box-shadow: inset 0 1px 0 var(--rim), var(--lift); overflow: hidden; isolation: isolate; }
+.lb-list .frow + .frow { border-top: 1px solid var(--stroke); }
+.lb-list .lb-row.me { outline: 2px solid color-mix(in srgb, var(--fg) 70%, transparent); outline-offset: -2px; }
+.lb-list .lb-rank { width: 30px; font-size: 18px; }
+.lb-list .place1 .lb-rank, .lb-list .place2 .lb-rank, .lb-list .place3 .lb-rank { font-size: 24px; filter: drop-shadow(0 2px 6px rgba(0,0,0,.45)); }
+.lb-row::after { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none; border-radius: inherit; }
+/* 1st: bright, breathing gold glow with a sweep of light across the card */
+.lb-list .lb-row.place1 { border-color: #f5c518; background: linear-gradient(120deg, color-mix(in srgb, #f5c518 22%, var(--glass)), color-mix(in srgb, #ff9d00 10%, var(--glass)) 60%, var(--glass)); animation: lb-gold 2.4s ease-in-out infinite; }
+.lb-row.place1::after { background: linear-gradient(105deg, transparent 30%, rgba(255,226,122,.35) 45%, rgba(255,255,255,.18) 50%, transparent 65%); background-size: 260% 100%; animation: lb-sweep 3.2s ease-in-out infinite; }
+.lb-row.place1 .lb-score { color: #ffd84a; text-shadow: 0 0 12px rgba(245,197,24,.8); }
+.lb-row.place1 .lb-rank { animation: lb-bob 2.4s ease-in-out infinite; }
+@keyframes lb-gold { 0%, 100% { box-shadow: inset 0 1px 0 var(--rim), 0 0 10px rgba(245,197,24,.35), 0 0 0 1px rgba(245,197,24,.4); } 50% { box-shadow: inset 0 1px 0 var(--rim), 0 0 26px rgba(245,197,24,.7), 0 0 0 1px rgba(255,226,122,.9); } }
+@keyframes lb-sweep { 0% { background-position: 130% 0; } 60%, 100% { background-position: -30% 0; } }
+@keyframes lb-bob { 50% { transform: translateY(-3px) rotate(-6deg); } }
+/* 2nd: cooler silver shimmer, slower and softer */
+.lb-list .lb-row.place2 { border-color: color-mix(in srgb, #dfe6ee 70%, var(--stroke)); background: linear-gradient(120deg, color-mix(in srgb, #cfd8e3 14%, var(--glass)), var(--glass) 65%); animation: lb-silver 3.6s ease-in-out infinite; }
+.lb-row.place2::after { background: linear-gradient(105deg, transparent 35%, rgba(235,242,250,.18) 50%, transparent 65%); background-size: 260% 100%; animation: lb-sweep 5.5s ease-in-out infinite; }
+.lb-row.place2 .lb-score { color: #eef3f8; text-shadow: 0 0 8px rgba(220,230,240,.5); }
+@keyframes lb-silver { 50% { box-shadow: inset 0 1px 0 var(--rim), 0 0 14px rgba(210,222,235,.35); } }
+/* 3rd: a bronze tint, no motion */
+.lb-list .lb-row.place3 { border-color: color-mix(in srgb, #cd7f32 60%, var(--stroke)); background: linear-gradient(120deg, color-mix(in srgb, #cd7f32 13%, var(--glass)), var(--glass) 65%); }
+.lb-row.place3 .lb-score { color: #f0a96a; }
+/* Bars always charging: flowing stripes, a light pulse running along, and a spark at the tip */
+.lbar-track { height: 9px; box-shadow: inset 0 1px 2px rgba(0,0,0,.35); }
+.lbar-track i { animation: lbar-breathe 2.2s ease-in-out infinite; }
+.lbar-track i::after { content: ""; position: absolute; inset: 0; border-radius: inherit; background: linear-gradient(90deg, transparent, rgba(255,255,255,.7) 50%, transparent); background-size: 40% 100%; background-repeat: no-repeat; animation: lbar-run 2s cubic-bezier(.5,0,.5,1) infinite; }
+@keyframes lbar-run { from { background-position: -60% 0; } to { background-position: 160% 0; } }
+@keyframes lbar-breathe { 50% { filter: brightness(1.25) saturate(1.2); box-shadow: 0 0 14px var(--b1); } }
+.lbar-spark { position: absolute; right: -2px; top: 50%; width: 10px; height: 10px; margin-top: -5px; border-radius: 50%; background: #fff; box-shadow: 0 0 6px 2px var(--b1), 0 0 14px 4px var(--b2); animation: lbar-spark 1.1s ease-in-out infinite; }
+@keyframes lbar-spark { 50% { transform: scale(.55); opacity: .65; } }
+.lbar.live .lbar-track i { animation: lbar-pulse 1s ease-in-out infinite; }
+.lbar.live .lbar-track i::after { animation-duration: 1s; }
+@media (prefers-reduced-motion: reduce) { .lb-row.place1, .lb-row.place2, .lb-row::after, .lb-row .lb-rank, .lbar-track i, .lbar-track i::after, .lbar-spark { animation: none !important; } }
+.lb-list .lb-row.lb-win { animation: lb-win 1.2s ease 2; }
+.lb-list .lb-row.lb-loss { animation: lb-loss .5s ease 2; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }

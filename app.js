@@ -1962,11 +1962,13 @@ function openFriend(p) {
 const moneyTiny = n => n >= 1e6 ? "$" + +(n / 1e6).toFixed(1) + "m" : n >= 1000 ? "$" + +(n / 1000).toFixed(n >= 1e4 ? 0 : 1) + "k" : "$" + Math.round(n);
 const livePct = l => Math.max(0, Math.min(100, Math.round((l.frac || 0) * 100)));
 const liveGoal = l => l.to_go === 0 ? "Target hit 🎯" : l.to_go == null ? "" : `${plural(l.to_go, "win")} to go`;
-function liveBarHTML(l, p, mini) {
+// Gold, silver and bronze for the top three; everyone else charges in the app's colours.
+const PLACE_BAR = { 1: ["#ffe27a", "#f5a300"], 2: ["#f4f7fb", "#9aa6b5"], 3: ["#ffc08a", "#b8662e"] };
+function liveBarHTML(l, p, mini, place) {
   if (!l) return "";
-  const t = tierOf(p);
-  return `<span class="lbar ${mini ? "mini" : ""} ${l.pending ? "live" : ""}" style="--b1:${t.c1};--b2:${t.c2}" title="${livePct(l)}% of the way to ${moneyShort(l.target)}">
-    <span class="lbar-track"><i style="width:${Math.max(livePct(l), 3)}%" data-to="${Math.max(livePct(l), 3)}" data-lid="${p.id}"></i></span>
+  const [c1, c2] = PLACE_BAR[place] || ["#7dffb0", "#22c3ff"];
+  return `<span class="lbar ${mini ? "mini" : ""} ${l.pending ? "live" : ""}" style="--b1:${c1};--b2:${c2}" title="${livePct(l)}% of the way to ${moneyShort(l.target)}">
+    <span class="lbar-track"><i style="width:${Math.max(livePct(l), 3)}%" data-to="${Math.max(livePct(l), 3)}" data-lid="${p.id}"><b class="lbar-spark"></b></i></span>
     ${mini ? "" : `<span class="lbar-cap">${l.pending ? `<em>⏳ Bet in play</em>` : `<span>${moneyShort(l.balance)} → ${moneyShort(l.target)}</span>`}<span>${liveGoal(l)}</span></span>`}</span>`;
 }
 function liveCardHTML(l, p) {
@@ -2039,7 +2041,7 @@ function renderLeaders() {
   const fresh = !document.querySelector("#view [data-boardview]");
   loadBoard(fresh && Date.now() - ((boards[boardKey()] || {}).at || 0) > 3000);
   const b = boards[boardKey()] || {}, rows = b.rows || [], meRow = rows.find(r => r.is_me);
-  const top = rows.filter(r => !r.is_me || r.rank <= 50), podium = top.slice(0, 3).filter(r => r.score > 0), rest = top.slice(podium.length);
+  const top = rows.filter(r => !r.is_me || r.rank <= 50);
   const outside = meRow && !top.includes(meRow);
   const lonely = boardScope === "friends" && rows.length === 1;
   $("#view").innerHTML = `${leadNav()}
@@ -2048,9 +2050,8 @@ function renderLeaders() {
     <div class="lb-metrics">${BOARD_METRICS.map(([k, n]) => `<button data-bmetric="${k}" class="${boardMetric === k ? "on" : ""}">${n}</button>`).join("")}</div>
     ${b.err ? `<div class="glass card"><div class="err" style="margin:0">${esc(b.err)}</div></div>` : ""}
     ${!b.rows && !b.err ? `<div class="glass card"><div class="cap" style="margin:0">Loading the leaderboard…</div></div>` : ""}
-    ${podium.length ? `<div class="lb-podium n${podium.length}">${podium.map(podiumHTML).join("")}</div>` : ""}
-    ${rest.length ? `<div class="glass card flist">${rest.map(boardRow).join("")}</div>` : ""}
-    ${outside ? `<div class="section-h"><h2>Your spot</h2></div><div class="glass card flist">${boardRow(meRow)}</div>` : ""}
+    ${top.length ? `<div class="lb-list">${top.map(boardRow).join("")}</div>` : ""}
+    ${outside ? `<div class="section-h"><h2>Your spot</h2></div><div class="lb-list">${boardRow(meRow)}</div>` : ""}
     ${b.rows && lonely ? `<div class="glass card fempty"><div class="soon-ic">🏆</div><p>It's just you so far. Add friends to see how you stack up, or switch to Everyone.</p><button class="btn sec" data-nav="friends">Find friends</button></div>` : ""}
     ${b.rows && !rows.length ? `<div class="glass card fempty"><div class="soon-ic">🏆</div><p>Nobody's on this board yet.</p></div>` : ""}
     ${b.rows ? `<div class="note" data-boardview style="margin:12px 0 0;text-align:center">Worked out from logged bets${boardMetric === "streak" ? ". A loss resets a live streak" : ""}.</div>` : ""}`;
@@ -2096,22 +2097,15 @@ function animateBoard(rows, fresh, at) {
     });
   });
 }
-function podiumHTML(p) {
-  const t = tierOf(p), i = p.rank - 1;
-  return `<button class="lb-pod p${Math.min(i, 2) + 1} ${p.is_me ? "me" : ""}" data-fopen="${p.id}">
-    <span class="lb-medal">${MEDALS[Math.min(i, 2)]}</span>
-    ${personAvatar(p.display_name, p.avatar_url, p.streak, t, i === 0 ? 78 : 62, { badge: true })}
-    <b>${glowNameAs(p.display_name, t)}</b>
-    <span class="lb-val">${boardValue(p)}<small> ${boardUnit(p)}</small></span>${liveBarHTML(p.live, p, true)}${p.live ? `<span class="lb-podcap"><span>${moneyTiny(p.live.balance)} → ${moneyTiny(p.live.target)}</span><span>${p.live.pending ? "⏳ Bet in play" : liveGoal(p.live)}</span></span>` : ""}</button>`;
-}
 function boardRow(p) {
   const t = tierOf(p);
   const sub = boardMetric === "streak" ? (p.streak ? `${t.sym} ${t.name}${p.streak_tracker ? ` · on ${esc(p.streak_tracker)}` : ""}` : `No live streak · best ${p.best_streak || 0}`)
     : boardMetric === "best" ? `Live now: ${t.sym} ${p.streak || 0}` : `${t.sym} ${p.streak || 0} live · best ${p.best_streak || 0}`;
-  return `<div class="frow lb-row ${p.is_me ? "me" : ""}" data-fid="${p.id}">
-    <span class="lb-rank">${p.rank}</span>
+  const place = p.rank <= 3 && p.score > 0 ? p.rank : 0;
+  return `<div class="frow lb-row ${place ? "place" + place : ""} ${p.is_me ? "me" : ""}" data-fid="${p.id}">
+    <span class="lb-rank">${place ? MEDALS[place - 1] : p.rank}</span>
     <button class="fwho" data-fopen="${p.id}">${personAvatar(p.display_name, p.avatar_url, p.streak, t, 42, { badge: true })}
-      <span class="fname"><b>${glowNameAs(p.display_name, t)}${p.is_me ? ` <em class="lb-you">You</em>` : ""}</b><small>${sub}</small>${liveBarHTML(p.live, p)}</span></button>
+      <span class="fname"><b>${glowNameAs(p.display_name, t)}${p.is_me ? ` <em class="lb-you">You</em>` : ""}</b><small>${sub}</small>${liveBarHTML(p.live, p, false, place)}</span></button>
     <span class="lb-score">${boardValue(p)}</span></div>`;
 }
 document.addEventListener("click", e => {
