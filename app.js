@@ -1959,13 +1959,14 @@ function openFriend(p) {
 /* ---------- Friends' progress and bets ----------
    The database works out each person's progress on the tracker they're furthest along, the same way
    your own ring does: wins so far out of wins so far plus the wins still needed at their usual odds. */
+const moneyTiny = n => n >= 1e6 ? "$" + +(n / 1e6).toFixed(1) + "m" : n >= 1000 ? "$" + +(n / 1000).toFixed(n >= 1e4 ? 0 : 1) + "k" : "$" + Math.round(n);
 const livePct = l => Math.max(0, Math.min(100, Math.round((l.frac || 0) * 100)));
 const liveGoal = l => l.to_go === 0 ? "Target hit 🎯" : l.to_go == null ? "" : `${plural(l.to_go, "win")} to go`;
 function liveBarHTML(l, p, mini) {
   if (!l) return "";
   const t = tierOf(p);
   return `<span class="lbar ${mini ? "mini" : ""} ${l.pending ? "live" : ""}" style="--b1:${t.c1};--b2:${t.c2}" title="${livePct(l)}% of the way to ${moneyShort(l.target)}">
-    <span class="lbar-track"><i style="width:${Math.max(livePct(l), 3)}%"></i></span>
+    <span class="lbar-track"><i style="width:${Math.max(livePct(l), 3)}%" data-to="${Math.max(livePct(l), 3)}" data-lid="${p.id}"></i></span>
     ${mini ? "" : `<span class="lbar-cap">${l.pending ? `<em>⏳ Bet in play</em>` : `<span>${moneyShort(l.balance)} → ${moneyShort(l.target)}</span>`}<span>${liveGoal(l)}</span></span>`}</span>`;
 }
 function liveCardHTML(l, p) {
@@ -2018,7 +2019,7 @@ async function loadBoard(force) {
   const k = boardKey(), b = boards[k];
   if (!Cloud.user || localMode || (!force && b && (b.loading || Date.now() - b.at < 15000))) return;
   boards[k] = { ...(b || {}), loading: true, at: Date.now() };
-  try { boards[k] = { rows: await Cloud.leaderboard(boardScope, boardMetric), at: Date.now() }; }
+  try { boards[k] = { rows: await Cloud.leaderboard(boardScope, boardMetric), at: Date.now(), got: Date.now() }; }
   catch (x) { boards[k] = { ...(b || {}), err: Cloud.nice(x), at: Date.now() }; }
   if (state && !scrim && state.page === "leaderboard" && boardKey() === k) renderLeaders();
 }
@@ -2034,7 +2035,9 @@ function renderLeaders() {
       <div class="glass card"><div class="cap" style="margin:0">The leaderboard switches on once config.js has your Supabase keys and you're logged in.</div></div>`;
     return;
   }
-  loadBoard();
+  // Coming to the board from another page: fetch fresh results so new wins and losses show straight away.
+  const fresh = !document.querySelector("#view [data-boardview]");
+  loadBoard(fresh && Date.now() - ((boards[boardKey()] || {}).at || 0) > 3000);
   const b = boards[boardKey()] || {}, rows = b.rows || [], meRow = rows.find(r => r.is_me);
   const top = rows.filter(r => !r.is_me || r.rank <= 50), podium = top.slice(0, 3).filter(r => r.score > 0), rest = top.slice(podium.length);
   const outside = meRow && !top.includes(meRow);
@@ -2050,7 +2053,48 @@ function renderLeaders() {
     ${outside ? `<div class="section-h"><h2>Your spot</h2></div><div class="glass card flist">${boardRow(meRow)}</div>` : ""}
     ${b.rows && lonely ? `<div class="glass card fempty"><div class="soon-ic">🏆</div><p>It's just you so far. Add friends to see how you stack up, or switch to Everyone.</p><button class="btn sec" data-nav="friends">Find friends</button></div>` : ""}
     ${b.rows && !rows.length ? `<div class="glass card fempty"><div class="soon-ic">🏆</div><p>Nobody's on this board yet.</p></div>` : ""}
-    ${b.rows ? `<div class="note" style="margin:12px 0 0;text-align:center">Worked out from logged bets${boardMetric === "streak" ? ". A loss resets a live streak" : ""}.</div>` : ""}`;
+    ${b.rows ? `<div class="note" data-boardview style="margin:12px 0 0;text-align:center">Worked out from logged bets${boardMetric === "streak" ? ". A loss resets a live streak" : ""}.</div>` : ""}`;
+  if (b.rows) animateBoard(rows, fresh, b.got || 0);
+}
+/* Board animation. Bars charge up from empty when you open the board, and slide from where they were on a refresh.
+   Wins, losses and new bets since you last looked get a burst on that person. */
+let barShown = {}, bursts = {};
+const seenKey = () => "pd.boardSeen." + Cloud.user.id;
+function animateBoard(rows, fresh, at) {
+  let seen = {}; try { seen = JSON.parse(localStorage.getItem(seenKey()) || "{}"); } catch (x) {}
+  const changes = {};
+  Object.keys(bursts).forEach(id => { if (bursts[id].until < Date.now()) delete bursts[id]; });
+  rows.forEach(p => {
+    const was = seen[p.id], now = { s: p.streak || 0, p: !!(p.live && p.live.pending), f: p.live ? livePct(p.live) : null, at };
+    // Boards are cached per tab, so only compare against results older than these.
+    if (was && was.at >= at) return;
+    if (was) {
+      if (now.s > was.s) changes[p.id] = ["win", `+${plural(now.s - was.s, "win")} 🔥`];
+      else if (now.s < was.s) changes[p.id] = ["loss", "💥 Streak busted"];
+      else if (now.p && !was.p) changes[p.id] = ["bet", "⏳ New bet in"];
+    }
+    if (changes[p.id] && changes[p.id][0] === "loss" && was.f != null) barShown[p.id] = Math.max(was.f, 3);
+    seen[p.id] = now;
+  });
+  try { localStorage.setItem(seenKey(), JSON.stringify(seen)); } catch (x) {}
+  const bars = [...document.querySelectorAll("#view .lbar i[data-lid]")];
+  bars.forEach((el, i) => {
+    const id = el.dataset.lid, to = Number(el.dataset.to), from = fresh && !changes[id] ? 0 : barShown[id] ?? (fresh ? 0 : to);
+    barShown[id] = to;
+    if (from === to) return;
+    el.style.transition = "none"; el.style.width = from + "%"; el.getBoundingClientRect();
+    el.style.transition = `width ${changes[id] ? 1.4 : 1}s cubic-bezier(.2,.8,.2,1) ${fresh ? 0.12 * i : 0}s`; el.style.width = to + "%";
+    el.closest(".lbar").classList.add("charging"); setTimeout(() => el.closest(".lbar") && el.closest(".lbar").classList.remove("charging"), 1600 + 120 * i);
+  });
+  Object.entries(changes).forEach(([id, [kind, text]]) => { bursts[id] = { kind, text, until: Date.now() + 4200 }; });
+  // Bursts stay put if the board redraws while they're showing.
+  Object.entries(bursts).forEach(([id, { kind, text, until }]) => {
+    document.querySelectorAll(`#view [data-fid="${CSS.escape(id)}"], #view .lb-pod[data-fopen="${CSS.escape(id)}"]`).forEach(el => {
+      el.classList.add("lb-" + kind);
+      el.insertAdjacentHTML("beforeend", `<span class="lb-burst ${kind}">${esc(text)}</span>`);
+      setTimeout(() => { el.classList.remove("lb-" + kind); el.querySelectorAll(".lb-burst").forEach(x => x.remove()); }, until - Date.now());
+    });
+  });
 }
 function podiumHTML(p) {
   const t = tierOf(p), i = p.rank - 1;
@@ -2058,7 +2102,7 @@ function podiumHTML(p) {
     <span class="lb-medal">${MEDALS[Math.min(i, 2)]}</span>
     ${personAvatar(p.display_name, p.avatar_url, p.streak, t, i === 0 ? 78 : 62, { badge: true })}
     <b>${glowNameAs(p.display_name, t)}</b>
-    <span class="lb-val">${boardValue(p)}<small> ${boardUnit(p)}</small></span>${liveBarHTML(p.live, p, true)}${p.live && p.live.pending ? `<span class="lb-inplay">⏳ in play</span>` : ""}</button>`;
+    <span class="lb-val">${boardValue(p)}<small> ${boardUnit(p)}</small></span>${liveBarHTML(p.live, p, true)}${p.live ? `<span class="lb-podcap"><span>${moneyTiny(p.live.balance)} → ${moneyTiny(p.live.target)}</span><span>${p.live.pending ? "⏳ Bet in play" : liveGoal(p.live)}</span></span>` : ""}</button>`;
 }
 function boardRow(p) {
   const t = tierOf(p);
