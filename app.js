@@ -539,7 +539,6 @@ function renderHome(anim) {
   const pv = previewSkin && SKINS.find(k => k.id === previewSkin);
   const shown = s.tier; // the badge and ring always show the live tier; themes only change colours
   const autoNote = t.oddsMode === "auto" ? (t.bets.length ? `last ${Math.min(RECENT, t.bets.length)} bets` : "until your first bet") : "fixed";
-  const targetEdited = t.targetEdits.length > 0;
   $("#view").innerHTML = `
     ${pv ? `<div class="glass pv-bar"><div>👀 <b>Previewing the ${pv.name} theme.</b> Your tier and numbers are real. It unlocks at ${pv.need} wins in a row.</div><button data-stoppreview>Stop</button></div>` : ""}
     <div class="head">
@@ -554,7 +553,7 @@ function renderHome(anim) {
       ${ringSVG({ ...s, tier: shown, from: anim && anim.from != null ? anim.from : undefined })}
       <div class="ring-center">
         <div class="bal">${money(s.balance)}</div>
-        <div class="of">of ${money(t.target)}${targetEdited ? ` <span class="edited">edited</span>` : ""}</div>
+        <div class="of">of ${money(t.target)}</div>
         <div class="streak"><span>${tierSym(shown)}</span><span>${plural(s.streak, "win")}</span></div>
         ${t.paused ? `<div class="pause-pill">⏸ Run paused</div>` : `<div class="togo">${s.reached ? "🏆 Target reached" : winsText(s.remaining) + " to go"}</div>`}
       </div>
@@ -591,7 +590,7 @@ function historyHTML(t, s) {
       if (a.type === "end") return `<div class="run-break ok">Run ${x ? x.run : ""} ended · cashed out ${money(x ? x.amt : 0)}</div>`;
       if (a.type === "pause") return `<div class="act">⏸ <span>Run paused · ${when(a.at)}</span></div>`;
       if (a.type === "resume") return `<div class="act">▶️ <span>Run resumed · ${when(a.at)}</span></div>`;
-      if (a.type === "target") return `<div class="act">🎯 <span>Target changed ${money(a.from)} → <b>${money(a.to)}</b> · ${when(a.at)} <span class="edited">edited</span></span></div>`;
+      if (a.type === "target") return `<div class="act">🎯 <span>Target changed ${money(a.from)} → <b>${money(a.to)}</b> · ${when(a.at)}</span></div>`;
       return "";
     }
     const r = s.rows[b.id], rk = riskFor(b.odds);
