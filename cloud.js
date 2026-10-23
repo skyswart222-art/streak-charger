@@ -41,9 +41,10 @@ function rowsFor(state) {
   state.trackers.forEach((t, i) => {
     rows.push(["trackers", t.id, { id: t.id, name: t.name, accent: t.accent, start_balance: t.start, target: t.target, odds_mode: t.oddsMode,
       fixed_odds: t.fixedOdds, paused: !!t.paused, target_edits: t.targetEdits || [], position: i, created_at: Math.round(t.createdAt),
-      ...(t.shared !== undefined ? { shared: t.shared !== false } : {}) }]);
+      ...(t.shared !== undefined ? { shared: t.shared !== false } : {}), ...(t.kind === "regular" ? { kind: "regular" } : {}) }]);
     for (const b of t.bets) rows.push(["bets", b.id, { id: b.id, tracker_id: t.id, odds: b.odds, sport: b.sport, text: b.text, link: b.link || "",
-      result: b.result, created_at: Math.round(b.createdAt), settled_at: b.settledAt ? Math.round(b.settledAt) : null, edits: b.edits || [], ...(b.slip ? { slip: b.slip } : {}) }]);
+      result: b.result, created_at: Math.round(b.createdAt), settled_at: b.settledAt ? Math.round(b.settledAt) : null, edits: b.edits || [], ...(b.slip ? { slip: b.slip } : {}),
+      ...(b.stake != null ? { stake: b.stake } : {}) }]);
     for (const a of t.actions) { const { id, type, at, ...payload } = a; rows.push(["tracker_actions", id, { id, tracker_id: t.id, type, at: Math.round(at), payload }]); }
   });
   const data = {}; for (const k of SETTINGS_KEYS) if (state[k] !== undefined) data[k] = state[k];
@@ -54,10 +55,10 @@ function stateFrom(trackers, bets, actions, settings) {
   if (!trackers.length) return null;
   const byT = new Map(trackers.sort((a, b) => a.position - b.position || a.created_at - b.created_at).map(r => [r.id, {
     id: r.id, name: r.name, accent: r.accent, start: r.start_balance, target: r.target, oddsMode: r.odds_mode, fixedOdds: r.fixed_odds,
-    paused: r.paused, targetEdits: r.target_edits || [], createdAt: Number(r.created_at), ...(r.shared === false ? { shared: false } : {}), bets: [], actions: [] }]));
+    paused: r.paused, targetEdits: r.target_edits || [], createdAt: Number(r.created_at), ...(r.shared === false ? { shared: false } : {}), ...(r.kind === "regular" ? { kind: "regular" } : {}), bets: [], actions: [] }]));
   bets.sort((a, b) => a.created_at - b.created_at || (a.id < b.id ? -1 : 1)).forEach(r => { const t = byT.get(r.tracker_id); if (t) t.bets.push({
     id: r.id, odds: r.odds, sport: r.sport, text: r.text, link: r.link || "", result: r.result, createdAt: Number(r.created_at),
-    settledAt: r.settled_at == null ? null : Number(r.settled_at), edits: r.edits || [], ...(r.slip ? { slip: r.slip } : {}),
+    settledAt: r.settled_at == null ? null : Number(r.settled_at), edits: r.edits || [], ...(r.slip ? { slip: r.slip } : {}), ...(r.stake != null ? { stake: r.stake } : {}),
     ...(r.proof ? { proof: r.proof } : {}), ...(r.verified_at ? { verified: Number(r.verified_at) } : {}) }); });
   actions.sort((a, b) => a.at - b.at).forEach(r => { const t = byT.get(r.tracker_id); if (t) t.actions.push({ id: r.id, type: r.type, at: Number(r.at), ...(r.payload || {}) }); });
   return { trackers: [...byT.values()], ...((settings && settings.data) || {}) };
@@ -130,6 +131,8 @@ const friendRequest = id => rpc("friend_request", { target: id });
 const friendRespond = (id, accept) => rpc("friend_respond", { other: id, accept });
 const friendRemove = id => rpc("friend_remove", { other: id });
 const leaderboard = (scope, metric) => rpc("leaderboard", { scope, metric, lim: 50 });
+// Regular trackers added up per person, ranked by profit as a share of their starting balances.
+const regularBoard = scope => rpc("regular_board", { scope, by: "pct", lim: 50 });
 // A friend's bets on trackers they show to others, plus their live progress. null if you aren't friends.
 const friendBets = other => rpc("friend_bets", { other, lim: 60 });
 
@@ -254,6 +257,13 @@ function queue(state) {
   writeCache(state, true);
   clearTimeout(timer); timer = setTimeout(flush, 500);
 }
+// Rows only carry optional columns (shared, kind, stake, slip) when they have them, so each upsert sends
+// rows with the same columns together; a mixed batch would blank the missing ones.
+async function upsertGroups(table, rows, opts) {
+  const groups = new Map();
+  for (const r of rows) { const k = Object.keys(r).sort().join(","); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(r); }
+  for (const g of groups.values()) must(await sb.from(table).upsert(g, opts));
+}
 async function flush() {
   clearTimeout(timer);
   if (!latest || !user) return;
@@ -265,8 +275,8 @@ async function flush() {
     try {
       if (total) onStatus("saving");
       // Trackers first, because bets and actions point at them.
-      if (changed.trackers.length) must(await sb.from("trackers").upsert(changed.trackers.map(x => x[1]), { onConflict: "id" }));
-      if (changed.bets.length) must(await sb.from("bets").upsert(changed.bets.map(x => x[1]), { onConflict: "id" }));
+      if (changed.trackers.length) await upsertGroups("trackers", changed.trackers.map(x => x[1]), { onConflict: "id" });
+      if (changed.bets.length) await upsertGroups("bets", changed.bets.map(x => x[1]), { onConflict: "id" });
       // Actions are a permanent record: new ones are added, existing ones are never rewritten.
       if (changed.tracker_actions.length) must(await sb.from("tracker_actions").upsert(changed.tracker_actions.map(x => x[1]), { onConflict: "id", ignoreDuplicates: true }));
       if (changed.user_settings.length) must(await sb.from("user_settings").upsert({ user_id: user.id, ...changed.user_settings[0][1] }, { onConflict: "user_id" }));
@@ -294,6 +304,6 @@ addEventListener("online", () => latest && flush());
 addEventListener("pagehide", () => { if (latest) flush(); });
 
 window.Cloud = { configured, currentUser, onAuth, nameAvailable, signUp, signIn, signOut, resetPassword, setPassword,
-  getProfile, updateProfile, uploadAvatar, searchProfiles, newJoiners, myFriends, friendRequest, friendRespond, friendRemove, leaderboard, friendBets, myChats, chatMessages, chatMarkRead, chatReact, feed, feedReact, sendMessage, uploadChatMedia, uploadSlip, uploadProof, verifyBet, flagBet, myBetFlags, mediaUrl, myGroups, groupMessages, groupMarkRead, groupReact, groupCreate, groupAdd, groupRename, groupLeave, groupPeople, sendGroupMessage, myChallenges, challengeCreate, challengeRespond, challengeWins, onChat, offChat, typingJoin, typingSend, typingLeave, typingTopic, deleteBet, deleteTracker, load, fetchAll, prime, merge, readCache, writeCache, queue, flush, pending, nice,
+  getProfile, updateProfile, uploadAvatar, searchProfiles, newJoiners, myFriends, friendRequest, friendRespond, friendRemove, leaderboard, regularBoard, friendBets, myChats, chatMessages, chatMarkRead, chatReact, feed, feedReact, sendMessage, uploadChatMedia, uploadSlip, uploadProof, verifyBet, flagBet, myBetFlags, mediaUrl, myGroups, groupMessages, groupMarkRead, groupReact, groupCreate, groupAdd, groupRename, groupLeave, groupPeople, sendGroupMessage, myChallenges, challengeCreate, challengeRespond, challengeWins, onChat, offChat, typingJoin, typingSend, typingLeave, typingTopic, deleteBet, deleteTracker, load, fetchAll, prime, merge, readCache, writeCache, queue, flush, pending, nice,
   get user() { return user; }, set onStatus(f) { onStatus = f; }, set onRejected(f) { onRejected = f; } };
 })();

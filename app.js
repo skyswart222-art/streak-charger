@@ -111,8 +111,8 @@ const SPORT_NAMES = new Set(SPORTS.map(s => s.name).concat("Other"));
    save is still read once, to offer importing it.
    ========================================================= */
 function uid() { return Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4); }
-function newTracker(n) {
-  return { id: uid(), name: "Tracker " + n, accent: ACCENTS[(n - 1) % ACCENTS.length], start: 100, target: 100000, oddsMode: "auto", fixedOdds: 1.05,
+function newTracker(n, kind) {
+  return { ...(kind === "regular" ? { kind } : {}), id: uid(), name: "Tracker " + n, accent: ACCENTS[(n - 1) % ACCENTS.length], start: 100, target: 100000, oddsMode: "auto", fixedOdds: 1.05,
     bets: [], actions: [], targetEdits: [], paused: false, createdAt: Date.now() };
 }
 function normalise(s) {
@@ -176,6 +176,7 @@ function fracFor(streak, bal, target, odds) {
   return isFinite(tot) && tot > 0 ? streak / tot : 0;
 }
 function compute(t) {
+  if (t.kind === "regular") return computeReg(t);
   const odds = avgOdds(t);
   const ev = t.bets.map(b => ({ k: "bet", at: b.createdAt, b })).concat(t.actions.map(a => ({ k: a.type, at: a.at, a }))).sort((x, y) => x.at - y.at);
   let bal = t.start, streak = 0, banked = 0, deposited = t.start, lost = 0, maxStreak = 0, peak = t.start;
@@ -264,7 +265,7 @@ let tcCache = null;
 function tierCount(tr) {
   if (!tcCache) {
     tcCache = TIERS.map(() => 0);
-    for (const t of state.trackers) { const s = compute(t); for (const r of s.runs.concat([s.current])) TIERS.forEach((x, i) => { if (r.maxStreak >= x.min) tcCache[i]++; }); }
+    for (const t of compTrackers()) { const s = compute(t); for (const r of s.runs.concat([s.current])) TIERS.forEach((x, i) => { if (r.maxStreak >= x.min) tcCache[i]++; }); }
   }
   return tr.min > 0 ? tcCache[tr.idx] || 0 : 0;
 }
@@ -479,7 +480,7 @@ function evalAchievements() {
   let allBets = 0; const sports = new Map();
   if (state.trackers.length >= 3) mark("juggler", state.trackers[2].createdAt);
   let best = 0;
-  for (const t of state.trackers) {
+  for (const t of compTrackers()) {
     const s = compute(t);
     best = Math.max(best, s.maxStreak);
     let prev = null;
@@ -554,7 +555,7 @@ function renderTabs() {
   const show = state.page === "home" || state.page === "stats" || state.page === "trackers";
   $("#tabs").hidden = !show;
   if (!show) return;
-  $("#tabs").innerHTML = state.trackers.map(t => {
+  $("#tabs").innerHTML = state.trackers.filter(t => state.page === "trackers" || kindOf(t) === curSection()).map(t => {
     const s = compute(t);
     return `<button class="tab ${t.id === state.activeId ? "active" : ""}" data-tab="${t.id}"><span class="dot" style="background:${t.accent}"></span>${esc(t.name)}${t.shared === false && !localMode ? " 🔒" : ""}${t.paused ? " ⏸" : s.pending ? " ⏳" : ""}</button>`;
   }).join("") + `<button class="tab" data-add aria-label="Add tracker">＋</button><button class="tab ic ${state.page === "trackers" ? "active" : ""}" data-nav="trackers" aria-label="All trackers"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="2"/><rect x="13" y="4" width="7" height="7" rx="2"/><rect x="4" y="13" width="7" height="7" rx="2"/><rect x="13" y="13" width="7" height="7" rx="2"/></svg></button>`;
@@ -563,12 +564,14 @@ function renderTabs() {
 function render(anim) {
   stopFx();
   if (!state) return;
+  if (["home", "stats", "planner"].includes(state.page)) { const list = sectionTrackers(); if (list.length && kindOf(active()) !== curSection()) state.activeId = list[0].id; }
   tcCache = null; applySkin(); renderNav(); renderTabs(); renderMe();
   const t = active();
   setAccent(state.page === "home" || state.page === "stats" ? t.accent : ACCENTS[0]);
   $("#fabBar").hidden = state.page !== "home";
   ({ home: renderHome, trackers: renderTrackers, stats: renderStats, planner: renderPlanner, awards: renderAwards, hints: renderHints, profile: renderProfile,
      friends: renderFriends, leaderboard: renderLeaders, chat: renderChat, feed: renderFeed, challenges: renderChallenges })[state.page](anim);
+  if (state.page === "home" || state.page === "stats") $("#view").insertAdjacentHTML("afterbegin", kindNavHTML());
   // Stats, Planner and Awards share the Stats tab, with a switcher on top.
   if (SUBNAV.some(x => x[0] === state.page)) $("#view").insertAdjacentHTML("afterbegin", `<div class="seg subnav">${SUBNAV.map(([id, n]) => `<button data-nav="${id}" class="${state.page === id ? "on" : ""}">${n}</button>`).join("")}</div>`);
   // Home has your tracker and the friends feed, with the same switcher.
@@ -576,7 +579,7 @@ function render(anim) {
 }
 
 /* ---------- Home ---------- */
-function renderHome(anim) {
+function renderHomeCompound(anim) {
   const t = active(), s = compute(t);
   const nt = nextTier(s.tier);
   const pv = previewSkin && SKINS.find(k => k.id === previewSkin);
@@ -656,7 +659,7 @@ function renderTrackers() {
   $("#view").innerHTML = `
     <div class="head" style="padding-top:18px"><div><div class="eyebrow">${plural(state.trackers.length, "tracker")}</div><h1>All trackers</h1></div></div>
     <div class="ov-grid">
-      ${state.trackers.map(t => { const s = compute(t); return `
+      ${state.trackers.map(t => { const s = compute(t); if (s.regular) return regOvCard(t, s); return `
         <button class="glass ov-card ${t.id === state.activeId ? "active" : ""}" data-open="${t.id}">
           ${ringSVG(s)}
           <div class="n"><span class="dot" style="width:8px;height:8px;border-radius:50%;background:${t.accent};flex:none"></span>${esc(t.name)}</div>
@@ -665,14 +668,14 @@ function renderTrackers() {
           <div class="st">${s.reached ? "🏆 target hit" : winsText(s.remaining) + " to go"}</div>
           ${s.banked ? `<div class="st" style="color:var(--gold)">🏦 ${moneyShort(s.banked)} banked</div>` : ""}
         </button>`; }).join("")}
-      <button class="glass ov-card add" data-add><span>＋</span>New tracker</button>
+      <button class="glass ov-card add" data-add="compound"><span>＋</span>New compounding tracker</button><button class="glass ov-card add" data-add="regular"><span>＋</span>New regular tracker</button>
     </div>
     <div class="section-h"><h2>${localMode ? "Saved on this device" : "Synced to your account"}</h2></div>
     <div class="glass card">
       <div class="cap" style="margin-bottom:12px">${localMode ? "Everything is saved in this browser. Add your Supabase keys to config.js to sync it to an account." : "Everything you log saves to your account automatically, so it's on every device you log in on. You can still copy a backup any time."}</div>
       <div class="row2"><button class="btn sec" id="bkCopy">Copy backup</button><button class="btn sec" id="bkRestore">Import backup</button></div>
     </div>`;
-  document.querySelectorAll("[data-open]").forEach(el => el.onclick = () => { state.activeId = el.dataset.open; go("home"); });
+  document.querySelectorAll("[data-open]").forEach(el => el.onclick = () => { state.activeId = el.dataset.open; section = null; go("home"); });
   $("#bkCopy").onclick = copyBackup;
   $("#bkRestore").onclick = openRestore;
 }
@@ -931,7 +934,7 @@ function statsLayout() {
   return L;
 }
 
-function renderStats() {
+function renderStatsCompound() {
   const t = active(), s = compute(t);
   const settled = t.bets.filter(b => b.result !== "pending"), wins = settled.filter(b => b.result === "win");
   const allRuns = s.runs.concat([s.current]);
@@ -999,7 +1002,7 @@ function openStatsMenu() {
 }
 
 /* ---------- Planner ---------- */
-function renderPlanner() {
+function renderPlannerCompound() {
   const t = active(), s = compute(t);
   const pl = state.planner || (state.planner = { odds: odds2(s.odds), margin: 5 });
   $("#view").innerHTML = `
@@ -1350,15 +1353,303 @@ function renderHints() {
   document.querySelectorAll("[data-hint]").forEach(el => el.onclick = () => { hintSport = el.dataset.hint; render(); });
 }
 
+/* =========================================================
+   Regular betting trackers
+   A compounding tracker stakes the whole balance and a loss ends the run.
+   A regular tracker is a betting account ledger: each bet has its own stake,
+   a win adds the profit, a loss takes the stake off, and nothing ever resets.
+   Home and Stats have a Compounding / Regular switch; the leaderboard has a
+   Regular board ranked by profit as a share of the starting balance.
+   ========================================================= */
+const kindOf = t => t && t.kind === "regular" ? "regular" : "compound";
+// Streaks, tiers and achievements only ever come from compounding trackers.
+const compTrackers = () => state.trackers.filter(t => kindOf(t) === "compound");
+let section = null; // the Home/Stats switch; null follows the open tracker
+const curSection = () => section || kindOf(active());
+const sectionTrackers = () => state.trackers.filter(t => kindOf(t) === curSection());
+const pctSigned = (x, d = 1) => isFinite(x) ? (x >= 0 ? "+" : "−") + (Math.abs(x) * 100).toFixed(d) + "%" : "–";
+const KIND_NAV = [["compound", "Compounding"], ["regular", "Regular"]];
+const kindNavHTML = () => `<div class="seg kindnav">${KIND_NAV.map(([k, n]) => `<button data-kind="${k}" class="${curSection() === k ? "on" : ""}">${n}</button>`).join("")}</div>`;
+
+function computeReg(t) {
+  const rows = {}, settled = [], pendingBets = [];
+  let inPlay = 0;
+  t.bets.forEach((b, i) => {
+    const stake = Number(b.stake) || 0;
+    rows[b.id] = { stake, potential: stake * b.odds, run: 1, betInRun: i + 1, regular: true, streakAfter: 0 };
+    if (b.result === "pending") { pendingBets.push(b); inPlay += stake; } else settled.push(b);
+  });
+  // The ledger runs in the order bets were settled, so the balance line matches the account.
+  settled.sort((a, b) => (a.settledAt || a.createdAt) - (b.settledAt || b.createdAt));
+  let bal = t.start, peak = t.start, low = t.start, staked = 0, wins = 0, run = 0, lrun = 0, bestRun = 0, worstRun = 0, bigWin = 0, bigLoss = 0;
+  const points = [{ i: 0, bal: t.start }];
+  for (const b of settled) {
+    const r = rows[b.id], pl = b.result === "win" ? r.stake * (b.odds - 1) : -r.stake;
+    bal += pl; staked += r.stake; r.balAfter = bal; r.pl = pl;
+    if (b.result === "win") { wins++; run++; lrun = 0; bestRun = Math.max(bestRun, run); bigWin = Math.max(bigWin, pl); }
+    else { lrun++; run = 0; worstRun = Math.max(worstRun, lrun); bigLoss = Math.max(bigLoss, -pl); }
+    peak = Math.max(peak, bal); low = Math.min(low, bal);
+    points.push({ i: points.length, bal, r: b.result });
+  }
+  const profit = bal - t.start, last = t.bets[t.bets.length - 1];
+  return { regular: true, balance: bal, available: bal - inPlay, inPlay, profit, staked, growth: profit / t.start, roi: staked ? profit / staked : NaN,
+    wins, losses: settled.length - wins, settled, pendingBets, pending: pendingBets.length > 0, pendingBet: null, risk: null,
+    streak: run, run, lrun, bestRun, worstRun, bigWin, bigLoss, peak, low, points, rows, acts: {},
+    odds: settled.length ? median(settled.map(b => b.odds)) : NaN, lastStake: last ? Number(last.stake) || 0 : 0,
+    tier: TIERS[0], maxStreak: 0, banked: 0, frac: 0, reached: false, remaining: Infinity, total: Infinity, deposited: t.start, lost: 0,
+    runs: [], current: { n: 1, maxStreak: 0, bets: t.bets, steps: [], points, peak: bal, end: null } };
+}
+
+/* ---------- Home ---------- */
+function renderHome(anim) {
+  if (!sectionTrackers().length) return renderKindEmpty();
+  return kindOf(active()) === "regular" ? renderHomeRegular(anim) : renderHomeCompound(anim);
+}
+function renderKindEmpty() {
+  const reg = curSection() === "regular";
+  $("#fabBar").hidden = true;
+  $("#view").innerHTML = `
+    <div class="head"><div style="min-width:0"><div class="eyebrow">${reg ? "Regular betting" : "Compounding"}</div><h1>${reg ? "Track every bet" : "Compound a streak"}</h1></div></div>
+    <div class="glass card kind-empty">
+      <div class="soon-ic">${reg ? "📒" : "⚡"}</div>
+      ${reg ? `<p>A regular tracker works like your betting account. Set a starting balance, then log each bet with its own stake.</p>
+        <ul><li>A win adds the profit and a loss takes off the stake.</li><li>A loss never ends the tracker.</li><li>You get your profit, ROI and win rate, plus a spot on the Regular leaderboard.</li></ul>`
+      : `<p>A compounding tracker stakes the whole balance on every bet. One loss ends the run, so every pick counts.</p>`}
+      <button class="btn" data-add="${reg ? "regular" : "compound"}">Create a ${reg ? "regular" : "compounding"} tracker</button>
+    </div>`;
+}
+function balanceChart(s, t, h = 150) {
+  if (s.points.length < 2) return "";
+  const vals = s.points.map(p => p.bal), lo = Math.min(...vals, t.start), hi = Math.max(...vals, t.start), pad = (hi - lo) * .12 || Math.max(1, hi * .05);
+  const ymin = Math.max(0, lo - pad), ymax = hi + pad, css = getComputedStyle(document.documentElement);
+  const col = css.getPropertyValue(s.profit >= 0 ? "--win" : "--loss").trim();
+  const ticks = [ymin, (ymin + ymax) / 2, ymax];
+  return lineChart({ lines: [
+      { pts: [[0, t.start], [s.points.length - 1, t.start]], color: css.getPropertyValue("--muted").trim(), dash: true },
+      { pts: s.points.map(p => [p.i, p.bal, p.r === "win" ? css.getPropertyValue("--win").trim() : p.r === "loss" ? css.getPropertyValue("--loss").trim() : null]), color: col, area: true, dots: s.points.length <= 40 }],
+    xmin: 0, xmax: s.points.length - 1, ymin, ymax, yTicks: ticks, yFmt: axisMoney, xLabel: "settled bets", h });
+}
+function renderHomeRegular(anim) {
+  const t = active(), s = compute(t), up = s.profit >= 0;
+  $("#view").innerHTML = `
+    <div class="head">
+      <div style="min-width:0"><div class="eyebrow">Regular betting · ${plural(s.settled.length, "settled bet")}</div><h1>${esc(t.name)}</h1></div>
+      <button class="ghost" id="optBtn">Options</button>
+    </div>
+    <div class="glass reg-hero ${up ? "up" : "down"}">
+      <div class="k">Balance</div>
+      <div class="reg-bal">${money(s.balance)}</div>
+      <div class="reg-pl"><b>${signed(s.profit, money)}</b><span>${pctSigned(s.growth)} on your ${money(t.start)} start</span></div>
+      ${balanceChart(s, t, 140)}
+    </div>
+    <div class="glass stats">
+      <div class="stat"><div class="k">Win rate</div><div class="v">${s.settled.length ? pct(s.wins / s.settled.length) : "–"}</div><div class="s">${s.wins} won · ${s.losses} lost</div></div>
+      <div class="stat"><div class="k">ROI</div><div class="v ${s.staked ? (s.roi >= 0 ? "win" : "loss") : ""}">${s.staked ? pctSigned(s.roi) : "–"}</div><div class="s">on ${moneyShort(s.staked)} staked</div></div>
+      <div class="stat"><div class="k">In play</div><div class="v">${moneyShort(s.inPlay)}</div><div class="s">${plural(s.pendingBets.length, "bet")} running</div></div>
+    </div>
+    <div class="section-h"><h2>Ledger</h2><span>Permanent · tap a bet to settle or edit</span></div>
+    <div class="list">${regHistoryHTML(t, s)}</div>`;
+  loadMyFlags(); maybeWelcome();
+  $("#optBtn").onclick = () => openOptions(t);
+  document.querySelectorAll("[data-bet]").forEach(el => el.onclick = () => openBet(t, el.dataset.bet));
+  const fab = $("#fab");
+  fab.disabled = false;
+  fab.textContent = `Log a bet · ${moneyShort(s.available)} available`;
+  fab.onclick = () => openNewBet(t);
+  if (anim && (anim.type === "win" || anim.type === "loss")) fx(`<div class="stamp" style="${anim.type === "loss" ? "filter:drop-shadow(0 0 30px var(--loss))" : ""}">${anim.type === "win" ? "✅" : "❌"}</div>`, 1000);
+  if (anim && anim.type === "win") sparkWin(false, 0);
+}
+function regHistoryHTML(t, s) {
+  if (!t.bets.length) return `<div class="empty">No bets yet. Tap <b>Log a bet</b> to log your first one with its stake.</div>`;
+  const now = Date.now();
+  return t.bets.slice().sort((a, b) => b.createdAt - a.createdAt).map(b => {
+    const r = s.rows[b.id], icon = b.result === "win" ? "✅" : b.result === "loss" ? "❌" : "⏳";
+    const right = b.result === "win" ? `+${moneyShort(r.stake * (b.odds - 1))}<small>stake ${moneyShort(r.stake)}</small>`
+      : b.result === "loss" ? `−${moneyShort(r.stake)}<small>lost</small>` : `${moneyShort(r.potential)}<small>to return</small>`;
+    const locked = now - b.createdAt > DAY;
+    return `<button class="glass bet ${b.result}" data-bet="${b.id}">
+        <div class="ic">${icon}</div>
+        <div class="main"><div class="t">${esc(b.text || b.sport)}</div>
+          <div class="m"><span>${esc(b.sport)}</span><span>${moneyShort(r.stake)} @ ${odds2(b.odds)}</span><span>· ${when(b.createdAt)}</span>
+          ${b.edits.length ? `<span class="edited">edited</span>` : ""}${locked ? `<span title="Details locked">🔒</span>` : ""}${b.link ? `<span>🔗</span>` : ""}${b.slip ? `<span title="Bet slip attached">🧾</span>` : ""}${b.verified && b.result === "win" ? plaqueHTML() : ""}</div></div>
+        <div class="r">${right}</div>${betFlags[b.id] ? flagMarkHTML(betFlags[b.id]) : ""}</button>`;
+  }).join("");
+}
+
+/* ---------- Logging a bet ---------- */
+function openNewBet(t) { return kindOf(t) === "regular" ? openNewBetRegular(t) : openNewBetCompound(t); }
+function openNewBetRegular(t) {
+  const s = compute(t), avail = Math.max(0, s.available);
+  const chips = [s.lastStake > 0 && s.lastStake <= avail ? [`Last ${moneyShort(s.lastStake)}`, s.lastStake] : null,
+    ...[.01, .02, .05].map(f => [`${f * 100}%`, Math.max(.01, Math.round(s.balance * f * 100) / 100)])].filter(c => c && c[1] > 0 && c[1] <= avail);
+  const sh = openSheet(`
+    <h3>Log a bet</h3>
+    <div class="sub">${money(avail)} available${s.inPlay ? ` · ${money(s.inPlay)} already in play` : ""}.</div>
+    <div class="scan" id="scanRow" hidden><button class="btn sec" id="scanBtn" style="width:auto">📷 Fill from screenshot</button><span class="s" id="scanMsg">Pick a screenshot of your bet slip and the app fills in the details.</span><input type="file" id="scanFile" accept="image/*" hidden></div>
+    <div class="row2">
+      <div class="field"><label for="nStake">Stake</label><input id="nStake" inputmode="decimal" placeholder="e.g. 20" autocomplete="off" value="${s.lastStake > 0 && s.lastStake <= avail ? s.lastStake : ""}"></div>
+      <div class="field"><label for="nOdds">Decimal odds</label><input id="nOdds" inputmode="decimal" placeholder="e.g. 1.85" autocomplete="off"></div>
+    </div>
+    ${chips.length ? `<div class="chips" style="margin:-6px 0 12px">${chips.map(([l, v]) => `<button class="chip" data-stake="${v}">${l}</button>`).join("")}</div>` : ""}
+    <div class="field" id="nSportWrap"><label for="nSport">Sport</label><input id="nSport" placeholder="Start typing, e.g. crick" autocomplete="off"><span class="picked"></span></div>
+    <div class="field"><label for="nText">Bet</label><input id="nText" maxlength="60" placeholder="e.g. Storm to win" autocomplete="off"></div>
+    <div class="field"><label for="nLink">Link (optional)</label><input id="nLink" inputmode="url" placeholder="https://" autocomplete="off"></div>
+    <div class="preview"><span>Returns <b id="nRet">–</b></span><span id="nProfit" class="s"></span></div>
+    <div class="err" id="nErr"></div>
+    <button class="btn" id="nSave">Log bet</button>`);
+  const picker = sportPicker(sh.querySelector("#nSportWrap"), "");
+  const oddsIn = sh.querySelector("#nOdds"), stakeIn = sh.querySelector("#nStake");
+  const upd = () => {
+    const o = num(oddsIn.value), st = num(stakeIn.value), ok = o > 1 && st > 0;
+    sh.querySelector("#nRet").textContent = ok ? money(st * o) : "–";
+    sh.querySelector("#nProfit").textContent = ok ? `${signed(st * (o - 1), money)} if it wins` : "";
+  };
+  oddsIn.addEventListener("input", upd); stakeIn.addEventListener("input", upd);
+  sh.querySelectorAll("[data-stake]").forEach(c => c.onclick = () => { stakeIn.value = c.dataset.stake; upd(); });
+  setTimeout(() => (stakeIn.value ? oddsIn : stakeIn).focus(), 250);
+  setupScan(sh, picker, NaN);
+  sh.querySelector("#nSave").onclick = () => {
+    const o = num(oddsIn.value), st = Math.round(num(stakeIn.value) * 100) / 100, sport = picker.value, text = sh.querySelector("#nText").value.trim(), err = sh.querySelector("#nErr");
+    if (!(st > 0)) return err.textContent = "Enter your stake, like 20.";
+    if (st > avail + 1e-9) return err.textContent = `That's more than the ${money(avail)} available. Raise the starting balance in Options if you've topped up.`;
+    if (!(o > 1)) return err.textContent = "Enter decimal odds above 1.00, like 1.85.";
+    if (!sport) return err.textContent = "Pick a sport from the list (use Other if it isn't there).";
+    if (!text) return err.textContent = "Add a few words about the bet, like “Storm to win”.";
+    const b = { id: uid(), odds: Math.round(o * 1000) / 1000, stake: st, sport, text, link: cleanLink(sh.querySelector("#nLink").value), result: "pending", createdAt: Date.now(), settledAt: null, edits: [] };
+    t.bets.push(b);
+    if (sh._slip) attachSlip(b, sh._slip);
+    pushRecent(sport);
+    const fresh = evalAchievements(); save(); closeSheet(); render();
+    toast(`Logged ${money(st)} @ ${odds2(b.odds)}.`);
+    announce(fresh);
+  };
+}
+
+/* ---------- Options ---------- */
+function openOptions(t, isNew) { return kindOf(t) === "regular" ? openOptionsRegular(t, isNew) : openOptionsCompound(t, isNew); }
+function openOptionsRegular(t, isNew) {
+  let accent = t.accent;
+  const sh = openSheet(`
+    <h3>${isNew ? "New regular tracker" : "Tracker options"}</h3>
+    <div class="sub">A ledger for a betting account. Each bet has its own stake, and a loss never ends the tracker.</div>
+    <div class="field"><label for="oName">Name</label><input id="oName" maxlength="30" value="${esc(t.name)}"></div>
+    <div class="field"><label>Accent colour</label><div class="swatches">${ACCENTS.map(c => `<button data-c="${c}" style="--c:${c}" class="${c === accent ? "on" : ""}" aria-label="Colour ${c}"></button>`).join("")}</div></div>
+    <div class="field"><label for="oStart">Starting balance</label><input id="oStart" inputmode="decimal" value="${t.start}"><div class="hint">${isNew ? "What's in the account to start with." : "Changing it recalculates the balance, profit and growth."}</div></div>
+    ${localMode ? "" : `<label class="vis-row"><input type="checkbox" id="oShared" ${t.shared === false ? "" : "checked"}><span><b>👥 Show to friends and community</b><small>Ticked: its bets show in the feed and it counts on the Regular leaderboard. Unticked: only you can see it.</small></span></label>`}
+    <div class="err" id="oErr"></div>
+    <button class="btn" id="oSave">Save</button>
+    ${isNew ? "" : delTrackerHTML(t)}`);
+  const paint = () => sh.querySelectorAll("[data-c]").forEach(b => b.classList.toggle("on", b.dataset.c === accent));
+  sh.querySelectorAll("[data-c]").forEach(b => b.onclick = () => { accent = b.dataset.c; paint(); });
+  sh.querySelector("#oSave").onclick = () => {
+    const name = sh.querySelector("#oName").value.trim() || t.name, start = Math.round(num(sh.querySelector("#oStart").value) * 100) / 100, err = sh.querySelector("#oErr");
+    if (!(start > 0)) return err.textContent = "Starting balance must be more than $0.";
+    // The database still wants a target above the start; regular trackers don't use it.
+    Object.assign(t, { name, start, accent, target: Math.max(t.target, start * 2) });
+    const sharedBox = sh.querySelector("#oShared"), wasShared = t.shared !== false;
+    if (sharedBox && sharedBox.checked !== wasShared) t.shared = sharedBox.checked;
+    save(); closeSheet(); render();
+    if (sharedBox && !isNew && sharedBox.checked !== wasShared) toast(sharedBox.checked ? "👥 Friends and the community can see this tracker." : "🔒 Only you can see this tracker now.");
+  };
+  if (!isNew) wireDelTracker(sh, t);
+}
+
+/* ---------- Stats ---------- */
+function renderStats() {
+  if (!sectionTrackers().length) { renderKindEmpty(); return; }
+  return kindOf(active()) === "regular" ? renderStatsRegular() : renderStatsCompound();
+}
+function renderStatsRegular() {
+  const t = active(), s = compute(t), n = s.settled.length;
+  const avgStake = n ? s.staked / n : NaN, wr = n ? s.wins / n : NaN, exp = n ? expOf(s.settled) : NaN;
+  const sports = {};
+  for (const b of s.settled) { const x = sports[b.sport] || (sports[b.sport] = { n: 0, w: 0, pl: 0 }); x.n++; if (b.result === "win") x.w++; x.pl += s.rows[b.id].pl; }
+  const bySport = Object.entries(sports).sort((a, b) => b[1].pl - a[1].pl);
+  const bands = [[1, 1.5, "Under 1.50"], [1.5, 2, "1.50 to 1.99"], [2, 3, "2.00 to 2.99"], [3, Infinity, "3.00 and up"]].map(([lo, hi, l]) => {
+    const bs = s.settled.filter(b => b.odds >= lo && b.odds < hi); return { l, n: bs.length, w: bs.filter(b => b.result === "win").length, pl: bs.reduce((a, b) => a + s.rows[b.id].pl, 0) };
+  }).filter(x => x.n);
+  const cls = v => v >= 0 ? "win" : "loss";
+  $("#view").innerHTML = `
+    <div class="head"><div><div class="eyebrow">Stats · ${plural(n, "settled bet")}</div><h1>${esc(t.name)}</h1></div></div>
+    <div class="glass card stat-card"><span class="grp">Overview</span><h3>Profit and loss</h3><div class="cap">Started with ${money(t.start)}.</div>
+      <div class="tiles">
+        ${tileH("Balance", moneyShort(s.balance), `${moneyShort(s.inPlay)} in play`)}
+        ${tileH("Profit / loss", signed(s.profit), "settled bets", cls(s.profit))}
+        ${tileH("Growth", pctSigned(s.growth), "on the starting balance", cls(s.profit))}
+        ${tileH("ROI", n ? pctSigned(s.roi) : "–", "return on what you staked", n ? cls(s.roi) : "")}
+      </div></div>
+    <div class="glass card stat-card"><span class="grp">Overview</span><h3>Balance over time</h3>
+      ${n ? `<div class="cap">After each settled bet. The dashed line is where you started.</div>${balanceChart(s, t, 180)}` : needMore(1)}</div>
+    <div class="glass card stat-card"><span class="grp">Performance</span><h3>Win rate</h3><div class="cap">${plural(n, "settled bet")}</div>
+      ${n ? `<div class="tiles">${tileH("Actual", pct(wr, 1), `${s.wins} won of ${n}`, wr >= exp ? "win" : "loss")}${tileH("Expected", pct(exp, 1), "implied by the odds you took")}</div>` : needMore(1)}</div>
+    <div class="glass card stat-card"><span class="grp">Betting</span><h3>How you bet</h3>
+      ${n ? `<div class="tiles">
+        ${tileH("Average stake", moneyShort(avgStake), `${moneyShort(s.staked)} staked in total`)}
+        ${tileH("Typical odds", odds2(s.odds), "middle of your settled bets")}
+        ${tileH("Biggest win", s.bigWin ? "+" + moneyShort(s.bigWin) : "–", "profit on one bet", "win")}
+        ${tileH("Biggest loss", s.bigLoss ? "−" + moneyShort(s.bigLoss) : "–", "stake lost on one bet", s.bigLoss ? "loss" : "")}
+        ${tileH("Best run", plural(s.bestRun, "win"), "in a row")}
+        ${tileH("Worst run", plural(s.worstRun, "loss").replace("losss", "losses"), "in a row")}
+        ${tileH("Highest balance", moneyShort(s.peak), "")}
+        ${tileH("Lowest balance", moneyShort(s.low), "")}
+      </div>` : needMore(1)}</div>
+    ${bands.length ? `<div class="glass card stat-card"><span class="grp">Betting</span><h3>By odds</h3><div class="cap">Where your profit comes from.</div>
+      <div class="tbl-wrap"><table><thead><tr><th>Odds</th><th>Bets</th><th>Won</th><th>Profit</th></tr></thead><tbody>
+      ${bands.map(x => `<tr><td>${x.l}</td><td>${x.n}</td><td>${pct(x.w / x.n)}</td><td class="${cls(x.pl)}">${signed(x.pl)}</td></tr>`).join("")}</tbody></table></div></div>` : ""}
+    ${bySport.length ? `<div class="glass card stat-card"><span class="grp">Betting</span><h3>By sport</h3>
+      <div class="tbl-wrap"><table><thead><tr><th>Sport</th><th>Bets</th><th>Won</th><th>Profit</th></tr></thead><tbody>
+      ${bySport.map(([sp, x]) => `<tr><td>${esc(sp)}</td><td>${x.n}</td><td>${pct(x.w / x.n)}</td><td class="${cls(x.pl)}">${signed(x.pl)}</td></tr>`).join("")}</tbody></table></div></div>` : ""}`;
+}
+
+/* ---------- Planner ---------- */
+function renderPlanner() {
+  if (kindOf(active()) !== "regular") return renderPlannerCompound();
+  $("#view").innerHTML = `<div class="head" style="padding-top:18px"><div><div class="eyebrow">Odds planner</div><h1>For compounding runs</h1></div></div>
+    <div class="glass card"><div class="cap" style="margin:0">The planner works out how many wins in a row a compounding run needs. Open a compounding tracker to use it.</div>
+    <button class="btn sec" data-kind="compound" style="margin-top:12px">Switch to Compounding</button></div>`;
+}
+
+/* ---------- Trackers overview ---------- */
+function regOvCard(t, s) {
+  return `<button class="glass ov-card reg ${t.id === state.activeId ? "active" : ""}" data-open="${t.id}">
+    <div class="reg-ov-tag">📒 Regular</div>
+    <div class="n"><span class="dot" style="width:8px;height:8px;border-radius:50%;background:${t.accent};flex:none"></span>${esc(t.name)}</div>
+    <div class="b">${moneyShort(s.balance)}</div>
+    <div class="st ${s.profit >= 0 ? "win" : "loss"}">${signed(s.profit)} · ${pctSigned(s.growth)}</div>
+    <div class="st">${s.wins}W · ${s.losses}L${s.pendingBets.length ? ` · ⏳ ${s.pendingBets.length}` : ""}</div>
+  </button>`;
+}
+
+/* ---------- Regular leaderboard row ---------- */
+function regBoardRow(p) {
+  const t = tierOf(p), place = p.rank <= 3 && p.score > 0 ? p.rank : 0, profit = Number(p.profit) || 0, tie = boardTies.get(p.id);
+  return `<div class="frow lb-row reg-row ${place ? "place" + place : ""} ${p.is_me ? "me" : ""} ${tie ? "tied" : ""}" data-fid="${p.id}"${tie ? ` style="--td:${tie.i % 2 ? -1 : 1}"` : ""}>
+    <span class="lb-rank">${place ? MEDALS[place - 1] : p.rank}</span>
+    <button class="fwho" data-fopen="${p.id}">${personAvatar(p.display_name, p.avatar_url, p.streak, t, 42, { badge: true })}
+      <span class="fname"><span class="lb-namerow"><b>${glowNameAs(p.display_name, t)}${p.is_me ? ` <em class="lb-you">You</em>` : ""}</b><span class="lb-bal" title="Balance across regular trackers"><b>${moneyTiny(Number(p.start) + profit)}</b></span></span>
+        <small>${tie ? `<em class="lb-tie">⚔️ Tied</em>` : ""}<span class="${profit >= 0 ? "win" : "loss"}">${signed(profit)}</span> · ${p.wins}W ${p.losses}L${p.pending ? ` · ⏳ ${p.pending} in play` : ""}</small></span></button>
+    <span class="lb-score ${profit >= 0 ? "win" : "loss"}">${pctSigned(Number(p.score) || 0)}</span></div>`;
+}
+
+document.addEventListener("click", e => {
+  const k = e.target.closest("[data-kind]"); if (!k || !state) return;
+  section = k.dataset.kind; statsRun = null;
+  const list = sectionTrackers(); if (list.length && kindOf(active()) !== section) state.activeId = list[0].id;
+  if (state.page === "planner") state.page = "stats";
+  save(); render(); scrollTo(0, 0);
+});
+
 /* ---------- Global clicks ---------- */
 document.addEventListener("click", e => {
   if (!state) return;
   if (e.target.closest("#meBtn")) return go(state.page === "profile" ? "home" : "profile");
   if (e.target.closest("[data-stoppreview]")) { previewSkin = null; return render(); }
   const nav = e.target.closest("[data-nav]"); if (nav) return go(nav.dataset.nav);
-  const tab = e.target.closest("[data-tab]"); if (tab) { state.activeId = tab.dataset.tab; statsRun = null; save(); render(); return; }
+  const tab = e.target.closest("[data-tab]"); if (tab) { state.activeId = tab.dataset.tab; section = null; statsRun = null; save(); render(); return; }
   if (e.target.closest("[data-add]")) {
-    const t = newTracker(state.trackers.length + 1);
+    const ad = e.target.closest("[data-add]").dataset.add;
+    const t = newTracker(state.trackers.length + 1, ad === "regular" || (!ad && curSection() === "regular") ? "regular" : "compound");
+    section = kindOf(t);
     state.trackers.push(t); state.activeId = t.id; state.page = "home";
     const fresh = evalAchievements(); save(); render(); openOptions(t, true); announce(fresh);
   }
@@ -1399,7 +1690,7 @@ function toast(msg, cls = "") {
 }
 
 /* ---------- Tracker options ---------- */
-function openOptions(t, isNew) {
+function openOptionsCompound(t, isNew) {
   const s = compute(t);
   let mode = t.oddsMode, accent = t.accent;
   const canMove = !s.pending;
@@ -1546,7 +1837,7 @@ function pushRecent(n) { state.recentSports = [n, ...state.recentSports.filter(x
 function cleanLink(v) { v = v.trim(); if (!v) return ""; return /^https?:\/\//i.test(v) ? v : "https://" + v; }
 
 /* ---------- New bet ---------- */
-function openNewBet(t) {
+function openNewBetCompound(t) {
   const s = compute(t);
   const sh = openSheet(`
     <h3>Log a bet</h3>
@@ -1604,6 +1895,7 @@ function setupScan(sh, picker, balance) {
       sh.querySelector("#nOdds").dispatchEvent(new Event("input"));
       if (r.sport && SPORT_NAMES.has(r.sport)) picker.set(r.sport);
       if (r.text) sh.querySelector("#nText").value = r.text.slice(0, 60);
+      const stIn = sh.querySelector("#nStake"); if (stIn && Number(r.stake) > 0) { stIn.value = Number(r.stake); stIn.dispatchEvent(new Event("input")); }
       const miss = [!r.sport && "sport", !r.text && "bet"].filter(Boolean);
       const st = Number(r.stake);
       msg.innerHTML = "✅ Filled in. Check the details, then tap <b>Log bet</b>." + (miss.length ? ` Add the ${miss.join(" and ")} yourself.` : "") + (st > 0 && Math.abs(st - balance) / balance > 0.01 ? ` The slip shows a ${esc(money(st))} stake, but the tracker stakes ${esc(money(balance))}.` : "");
@@ -1618,7 +1910,7 @@ function setupScan(sh, picker, balance) {
 function openBet(t, id) {
   const b = t.bets.find(x => x.id === id); if (!b) return;
   const s = compute(t), r = s.rows[id], now = Date.now();
-  const isLast = t.bets[t.bets.length - 1].id === id;
+  const isLast = t.kind === "regular" || t.bets[t.bets.length - 1].id === id;
   const detailsOpen = now - b.createdAt < DAY;
   const resultLocked = b.result !== "pending" && b.settledAt && now - b.settledAt > DAY;
   const laterActs = t.actions.some(a => a.at > b.createdAt && (a.type === "bank" || a.type === "end"));
@@ -1627,7 +1919,7 @@ function openBet(t, id) {
   const rk = riskFor(b.odds);
   const sh = openSheet(`
     <h3>${esc(b.text)}</h3>
-    <div class="sub">${esc(b.sport)} · Run ${r.run}, bet ${r.betInRun} · logged ${when(b.createdAt)}${b.edits.length ? ` · <span class="edited">edited</span>` : ""}${rk ? ` · <span class="riskchip" style="--rc:${rk.c}">${rk.sym} ${rk.name}</span>` : ""}</div>
+    <div class="sub">${esc(b.sport)} · ${r.regular ? `${moneyShort(r.stake)} stake` : `Run ${r.run}, bet ${r.betInRun}`} · logged ${when(b.createdAt)}${b.edits.length ? ` · <span class="edited">edited</span>` : ""}${rk ? ` · <span class="riskchip" style="--rc:${rk.c}">${rk.sym} ${rk.name}</span>` : ""}</div>
     <div class="results">${["win", "loss", "pending"].map(res => `<button class="${res} ${b.result === res ? "on" : ""}" data-res="${res}" ${canResult(res) ? "" : "disabled"}><span>${icon[res]}</span>${label[res]}</button>`).join("")}</div>
     ${resultLocked ? `<div class="note">🔒 Result locked 24 hours after it was set.</div>` : b.result !== "pending" ? `<div class="note">You can correct the result until ${when(b.settledAt + DAY)}.</div>` : ""}
     <div class="kv">
@@ -1638,7 +1930,7 @@ function openBet(t, id) {
     ${b.link ? `<p style="margin:-4px 0 16px;font-size:14px">🔗 <a class="link" href="${esc(b.link)}" target="_blank" rel="noopener">${esc(b.link)}</a></p>` : ""}
     ${slipHTML(b)}
     ${verifyHTML(b)}
-    <div class="field"><label for="eOdds">Odds · editable any time</label><input id="eOdds" inputmode="decimal" value="${b.odds}"></div>
+    ${b.stake != null ? `<div class="row2"><div class="field"><label for="eStake">Stake</label><input id="eStake" inputmode="decimal" value="${b.stake}"></div><div class="field"><label for="eOdds">Odds</label><input id="eOdds" inputmode="decimal" value="${b.odds}"></div></div>` : `<div class="field"><label for="eOdds">Odds · editable any time</label><input id="eOdds" inputmode="decimal" value="${b.odds}"></div>`}
     <div class="field"><label for="eText">Bet</label><input id="eText" maxlength="60" value="${esc(b.text)}" ${detailsOpen ? "" : "disabled"}></div>
     <div class="field" id="eSportWrap"><label for="eSport">Sport</label><input id="eSport" autocomplete="off"><span class="picked"></span></div>
     <div class="field"><label for="eLink">Link</label><input id="eLink" inputmode="url" value="${esc(b.link)}" placeholder="https://" ${detailsOpen ? "" : "disabled"}></div>
@@ -1669,6 +1961,8 @@ function openBet(t, id) {
     if (!(o > 1)) return err.textContent = "Odds must be above 1.00.";
     const changes = [], no = Math.round(o * 1000) / 1000;
     if (no !== b.odds) changes.push({ field: "odds", from: odds2(b.odds), to: odds2(no) });
+    let nst = b.stake;
+    if (b.stake != null) { const sv = num(sh.querySelector("#eStake").value); if (!(sv > 0)) return err.textContent = "Stake must be more than $0."; nst = Math.round(sv * 100) / 100; if (nst !== b.stake) changes.push({ field: "stake", from: money(b.stake), to: money(nst) }); }
     let upd = {};
     if (detailsOpen) {
       const text = sh.querySelector("#eText").value.trim(), sport = picker.value, link = cleanLink(sh.querySelector("#eLink").value);
@@ -1681,10 +1975,10 @@ function openBet(t, id) {
     }
     if (!changes.length) return closeSheet();
     const before = compute(t);
-    Object.assign(b, upd, { odds: no }); b.edits.push({ at: Date.now(), changes });
+    Object.assign(b, upd, { odds: no }, b.stake != null ? { stake: nst } : {}); b.edits.push({ at: Date.now(), changes });
     const fresh = evalAchievements(); save(); closeSheet();
     render({ type: "edit", from: before.frac });
-    toast(changes.some(c => c.field === "odds") ? "Odds updated. The run was recalculated." : "Changes saved.");
+    toast(changes.some(c => c.field === "odds" || c.field === "stake") ? (b.stake != null ? "Bet updated. The balance was recalculated." : "Odds updated. The run was recalculated.") : "Changes saved.");
     announce(fresh);
   };
 }
@@ -1829,8 +2123,8 @@ let me = null, starting = false, syncState = "saved";
 
 // The profile badge shows the highest live streak across all trackers.
 function liveBest() {
-  let best = { streak: 0, t: state.trackers[0] };
-  for (const t of state.trackers) { const s = compute(t); if (s.streak > best.streak) best = { streak: s.streak, t }; }
+  let best = { streak: 0, t: compTrackers()[0] || state.trackers[0] };
+  for (const t of compTrackers()) { const s = compute(t); if (s.streak > best.streak) best = { streak: s.streak, t }; }
   const tier = tierFor(best.streak);
   return { ...best, tier, key: best.streak + ":" + tier.idx };
 }
@@ -1944,9 +2238,9 @@ function renderSetupNeeded() {
 }
 
 /* ---------- skyversion and update history (newest first; build.py fills these from VERSION and changelog.txt) ---------- */
-const SKY_LOG = [["1.50", "Oct 23", "Profile button at the top right only shows on Home"], ["1.49", "Oct 23", "Version number on the splash and profile, plus this update history"], ["1.48", "Oct 23", "Hold the mic to talk and let go to send, in every chat"], ["1.47", "Oct 23", "Slower, more realistic chopper take-off with a spark trail"], ["1.46", "Oct 23", "The chopper flies away when the splash ring fills"], ["1.45", "Oct 23", "Ranked ladder: Rookie, Bronze to Champion in three levels, then Legend"], ["1.44", "Oct 23", "Tied players shove each other on the leaderboard"], ["1.43", "Oct 23", "Launch splash runs five seconds"], ["1.42", "Oct 23", "Launch splash stays up a little longer"], ["1.41", "Oct 23", "Launch splash screen with the app logo"], ["1.40", "Oct 23", "Top-three embers, risky bet tags and New joiners in Friends"], ["1.39", "Oct 23", "Calmer leaderboard bars and first-place embers"], ["1.38", "Oct 23", "Block progress bars and a next-tier bar on the leaderboard"], ["1.37", "Oct 23", "Leaderboard win sparks, pinned group chats and a welcome note"], ["1.36", "Oct 23", "Leaderboard balance pill"], ["1.35", "Oct 22", "Removed the \"edited\" tag from tracker targets"], ["1.34", "Oct 22", "Verified wins with a gold plaque, and flagging suspicious slips"], ["1.33", "Oct 22", "Tier-coloured sparks that build over your last 3 wins"], ["1.32", "Oct 22", "Sparks come off the tier progress ring"], ["1.31", "Oct 22", "Sparks build up toward a tier-up"], ["1.30", "Oct 22", "Grinder sparks off the arc star"], ["1.29", "Oct 22", "Delete pending bets and trackers"], ["1.28", "Oct 21", "Same-size leaderboard cards with gold, silver and bronze top three"], ["1.27", "Oct 21", "Animated leaderboard with charging bars and win/loss bursts"], ["1.26", "Oct 21", "Pop-up sheets close with a button or a pull-down"], ["1.25", "Oct 21", "Live progress bars for friends, and tap a friend to see their bets"], ["1.24", "Oct 21", "See when someone is typing in chats and groups"], ["1.23", "Oct 21", "New app icon: a rig at sunset inside the streak arc"], ["1.22", "Oct 21", "Rig-worker streak tiers"], ["1.21", "Oct 21", "Show or hide each tracker from friends and the community"], ["1.20", "Oct 21", "Bet slip screenshots are kept with each logged bet"], ["1.19", "Oct 21", "Top row sits below the iPhone status bar, and New group always shows"], ["1.18", "Oct 21", "Removed the background glow; solid chat header"], ["1.17", "Oct 21", "No more haze above the top bar when pulling down"], ["1.16", "Oct 21", "Clean top bar instead of a hazy fade"], ["1.15", "Oct 21", "Bottom bar stays at the bottom on short pages"], ["1.14", "Oct 21", "Undid the bottom bar gap fix"], ["1.13", "Oct 21", "Closed the gap under the bottom bar"], ["1.12", "Oct 21", "Hints tab in Stats"], ["1.11", "Oct 21", "iPhone no longer zooms in and cuts off the screen edges"], ["1.10", "Oct 21", "Top bar no longer covers screens; locked themes stay a surprise"], ["1.9", "Oct 21", "Renamed the app to Pipe Dream"], ["1.8", "Oct 21", "Bet slip reader is back, free and on the phone"], ["1.7", "Oct 21", "App icon and Home Screen settings"], ["1.6", "Oct 21", "Challenges"], ["1.5", "Oct 21", "Group chats"], ["1.4", "Oct 21", "Friends feed"], ["1.3", "Oct 21", "Chat between friends"], ["1.2", "Oct 21", "Leaderboard"], ["1.1", "Oct 21", "Friends, with streaks worked out by the database"], ["1.0", "Oct 19", "First version: accounts, sync, profiles and five tabs"]];
+const SKY_LOG = [["1.51", "Oct 23", "Regular betting trackers: a ledger with stakes, stats and a Regular leaderboard"], ["1.50", "Oct 23", "Profile button at the top right only shows on Home"], ["1.49", "Oct 23", "Version number on the splash and profile, plus this update history"], ["1.48", "Oct 23", "Hold the mic to talk and let go to send, in every chat"], ["1.47", "Oct 23", "Slower, more realistic chopper take-off with a spark trail"], ["1.46", "Oct 23", "The chopper flies away when the splash ring fills"], ["1.45", "Oct 23", "Ranked ladder: Rookie, Bronze to Champion in three levels, then Legend"], ["1.44", "Oct 23", "Tied players shove each other on the leaderboard"], ["1.43", "Oct 23", "Launch splash runs five seconds"], ["1.42", "Oct 23", "Launch splash stays up a little longer"], ["1.41", "Oct 23", "Launch splash screen with the app logo"], ["1.40", "Oct 23", "Top-three embers, risky bet tags and New joiners in Friends"], ["1.39", "Oct 23", "Calmer leaderboard bars and first-place embers"], ["1.38", "Oct 23", "Block progress bars and a next-tier bar on the leaderboard"], ["1.37", "Oct 23", "Leaderboard win sparks, pinned group chats and a welcome note"], ["1.36", "Oct 23", "Leaderboard balance pill"], ["1.35", "Oct 22", "Removed the \"edited\" tag from tracker targets"], ["1.34", "Oct 22", "Verified wins with a gold plaque, and flagging suspicious slips"], ["1.33", "Oct 22", "Tier-coloured sparks that build over your last 3 wins"], ["1.32", "Oct 22", "Sparks come off the tier progress ring"], ["1.31", "Oct 22", "Sparks build up toward a tier-up"], ["1.30", "Oct 22", "Grinder sparks off the arc star"], ["1.29", "Oct 22", "Delete pending bets and trackers"], ["1.28", "Oct 21", "Same-size leaderboard cards with gold, silver and bronze top three"], ["1.27", "Oct 21", "Animated leaderboard with charging bars and win/loss bursts"], ["1.26", "Oct 21", "Pop-up sheets close with a button or a pull-down"], ["1.25", "Oct 21", "Live progress bars for friends, and tap a friend to see their bets"], ["1.24", "Oct 21", "See when someone is typing in chats and groups"], ["1.23", "Oct 21", "New app icon: a rig at sunset inside the streak arc"], ["1.22", "Oct 21", "Rig-worker streak tiers"], ["1.21", "Oct 21", "Show or hide each tracker from friends and the community"], ["1.20", "Oct 21", "Bet slip screenshots are kept with each logged bet"], ["1.19", "Oct 21", "Top row sits below the iPhone status bar, and New group always shows"], ["1.18", "Oct 21", "Removed the background glow; solid chat header"], ["1.17", "Oct 21", "No more haze above the top bar when pulling down"], ["1.16", "Oct 21", "Clean top bar instead of a hazy fade"], ["1.15", "Oct 21", "Bottom bar stays at the bottom on short pages"], ["1.14", "Oct 21", "Undid the bottom bar gap fix"], ["1.13", "Oct 21", "Closed the gap under the bottom bar"], ["1.12", "Oct 21", "Hints tab in Stats"], ["1.11", "Oct 21", "iPhone no longer zooms in and cuts off the screen edges"], ["1.10", "Oct 21", "Top bar no longer covers screens; locked themes stay a surprise"], ["1.9", "Oct 21", "Renamed the app to Pipe Dream"], ["1.8", "Oct 21", "Bet slip reader is back, free and on the phone"], ["1.7", "Oct 21", "App icon and Home Screen settings"], ["1.6", "Oct 21", "Challenges"], ["1.5", "Oct 21", "Group chats"], ["1.4", "Oct 21", "Friends feed"], ["1.3", "Oct 21", "Chat between friends"], ["1.2", "Oct 21", "Leaderboard"], ["1.1", "Oct 21", "Friends, with streaks worked out by the database"], ["1.0", "Oct 19", "First version: accounts, sync, profiles and five tabs"]];
 function updateHistoryHTML() {
-  return `<div class="appver">skyversion 1.50</div>
+  return `<div class="appver">skyversion 1.51</div>
     <details class="glass card uphist"><summary>Update history <small>${plural(SKY_LOG.length, "version")}</small></summary>
       <ol>${SKY_LOG.map(([v, d, t], i) => `<li${i ? "" : ' class="now"'}><b>${esc(v)}</b><span>${esc(t)}</span><small>${esc(d)}${i ? "" : " · you're on this"}</small></li>`).join("")}</ol></details>`;
 }
@@ -2115,7 +2409,7 @@ function renderProfile() {
 function statsText() {
   const b = liveBest(), s = compute(b.t), lines = [`⚡ ${me.display_name} on ${document.title}`];
   lines.push(`${b.tier.emoji} ${b.tier.name} · ${b.streak ? plural(b.streak, "win") + " in a row" : "no live streak yet"}`);
-  lines.push(s.reached ? `🎯 Target hit: ${money(s.balance)}` : `💰 ${money(s.balance)} of ${money(b.t.target)} · ${plural(s.remaining, "win")} to go`);
+  if (!s.regular) lines.push(s.reached ? `🎯 Target hit: ${money(s.balance)}` : `💰 ${money(s.balance)} of ${money(b.t.target)} · ${plural(s.remaining, "win")} to go`);
   const banked = state.trackers.reduce((n, t) => n + compute(t).banked, 0);
   lines.push(`🏆 Best streak ${state.bestStreak || 0}` + (banked > 0 ? ` · 🏦 Banked ${money(banked)}` : ""));
   if (s.pendingBet) lines.push(`⏳ Riding on: ${s.pendingBet.text} @ ${odds2(s.pendingBet.odds)}`);
@@ -2387,7 +2681,7 @@ function friendBetHTML(b, mine) {
       <span class="fbet-main"><b>${esc(b.text)}</b><small>${esc(b.sport)} · ${esc(b.tracker)} · ${when(Number(b.created_at))}</small></span>
       <span class="fbet-odds">${b.verified_at && b.result === "win" ? plaqueHTML() : b.slip ? "🧾 " : ""}@ ${odds2(b.odds)}</span>${Number(b.flags) ? flagMarkHTML(Number(b.flags)) : ""}</button>
     <div class="fbet-more" hidden>
-      <div class="fbet-kv"><span>Result</span><b>${r[0]} ${r[1]}</b><span>Odds</span><b>${odds2(b.odds)}</b><span>Sport</span><b>${esc(b.sport)}</b>
+      <div class="fbet-kv"><span>Result</span><b>${r[0]} ${r[1]}</b><span>Odds</span><b>${odds2(b.odds)}</b>${b.stake != null ? `<span>Stake</span><b>${money(Number(b.stake))}</b>` : ""}<span>Sport</span><b>${esc(b.sport)}</b>
         <span>Tracker</span><b><i class="fbet-dot" style="background:${esc(b.accent || "var(--accent)")}"></i>${esc(b.tracker)}</b>
         <span>Logged</span><b>${when(Number(b.created_at))}</b>${b.settled_at ? `<span>Settled</span><b>${when(Number(b.settled_at))}</b>` : ""}</div>
       ${b.link && /^https?:\/\//i.test(b.link) ? `<a class="btn sec fbet-link" href="${esc(b.link)}" target="_blank" rel="noopener">🔗 Open bet link</a>` : ""}
@@ -2418,14 +2712,14 @@ async function loadFriendBets(sh, p) {
 /* ---------- Leaderboard ----------
    Ranked by the database from everyone's logged bets. Friends shows you and your friends;
    Everyone shows the top 50 who have something on the board, plus your own spot. */
-const BOARD_METRICS = [["streak", "Live streak"], ["best", "Best streak"], ["banked", "Banked"]];
+const BOARD_METRICS = [["streak", "Live streak"], ["best", "Best streak"], ["banked", "Banked"], ["regular", "Regular"]];
 let boards = {}, boardScope = "friends", boardMetric = "streak", boardTies = new Map();
 const boardKey = () => boardScope + ":" + boardMetric;
 async function loadBoard(force) {
   const k = boardKey(), b = boards[k];
   if (!Cloud.user || localMode || (!force && b && (b.loading || Date.now() - b.at < 15000))) return;
   boards[k] = { ...(b || {}), loading: true, at: Date.now() };
-  try { boards[k] = { rows: await Cloud.leaderboard(boardScope, boardMetric), at: Date.now(), got: Date.now() }; }
+  try { boards[k] = { rows: await (boardMetric === "regular" ? Cloud.regularBoard(boardScope) : Cloud.leaderboard(boardScope, boardMetric)), at: Date.now(), got: Date.now() }; }
   catch (x) { boards[k] = { ...(b || {}), err: Cloud.nice(x), at: Date.now() }; }
   if (state && !scrim && state.page === "leaderboard" && boardKey() === k) renderLeaders();
 }
@@ -2461,9 +2755,9 @@ function renderLeaders() {
     ${top.length ? `<div class="lb-list">${top.map(boardRow).join("")}</div>` : ""}
     ${outside ? `<div class="section-h"><h2>Your spot</h2></div><div class="lb-list">${boardRow(meRow)}</div>` : ""}
     ${b.rows && lonely ? `<div class="glass card fempty"><div class="soon-ic">🏆</div><p>It's just you so far. Add friends to see how you stack up, or switch to Everyone.</p><button class="btn sec" data-nav="friends">Find friends</button></div>` : ""}
-    ${b.rows && !rows.length ? `<div class="glass card fempty"><div class="soon-ic">🏆</div><p>Nobody's on this board yet.</p></div>` : ""}
-    ${b.rows ? `<div class="note" data-boardview style="margin:12px 0 0;text-align:center">Worked out from logged bets${boardMetric === "streak" ? ". A loss resets a live streak" : ""}.</div>` : ""}`;
-  if (b.rows) animateBoard(rows, fresh, b.got || 0);
+    ${b.rows && !rows.length ? `<div class="glass card fempty"><div class="soon-ic">🏆</div><p>${boardMetric === "regular" ? "Nobody has a regular tracker here yet. Start one from Home with the Regular switch." : "Nobody's on this board yet."}</p></div>` : ""}
+    ${b.rows ? `<div class="note" data-boardview style="margin:12px 0 0;text-align:center">${boardMetric === "regular" ? "Regular trackers added up, ranked by profit on the starting balance" : `Worked out from logged bets${boardMetric === "streak" ? ". A loss resets a live streak" : ""}`}.</div>` : ""}`;
+  if (b.rows && boardMetric !== "regular") animateBoard(rows, fresh, b.got || 0);
 }
 /* Board animation. Bars charge up from empty when you open the board, and slide from where they were on a refresh.
    Wins, losses and new bets since you last looked get a burst on that person. */
@@ -2555,6 +2849,7 @@ function riskBadgeHTML(r, odds) {
   return `<span class="rk-tag" title="${r.name} bet">${r.sym} ${r.name}<small>@ ${odds2(odds)}</small></span>`;
 }
 function boardRow(p) {
+  if (boardMetric === "regular") return regBoardRow(p);
   const t = tierOf(p);
   const sub = boardMetric === "streak" ? (p.streak ? `${t.sym} ${t.name}${p.streak_tracker ? ` · on ${esc(p.streak_tracker)}` : ""}` : `No live streak · best ${p.best_streak || 0}`)
     : boardMetric === "best" ? `Live now: ${t.sym} ${p.streak || 0}` : `${t.sym} ${p.streak || 0} live · best ${p.best_streak || 0}`;

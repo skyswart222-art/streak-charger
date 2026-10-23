@@ -65,6 +65,9 @@ create table if not exists public.trackers (
 create index if not exists trackers_user_idx on public.trackers (user_id);
 -- Unticked in Tracker options: only you can see this tracker. It stays out of the feed, leaderboards and challenges.
 alter table public.trackers add column if not exists shared boolean not null default true;
+-- Compounding trackers stake the whole balance and a loss ends the run. Regular trackers are a betting
+-- account ledger: each bet has its own stake and a loss just takes that stake off the balance.
+alter table public.trackers add column if not exists kind text not null default 'compound' check (kind in ('compound', 'regular'));
 
 -- ---------- Bets ----------
 create table if not exists public.bets (
@@ -83,6 +86,8 @@ create table if not exists public.bets (
 );
 create index if not exists bets_user_idx on public.bets (user_id);
 create index if not exists bets_tracker_idx on public.bets (tracker_id, created_at);
+-- A regular tracker's bets carry their own stake. Compounding bets leave it empty (they stake the whole balance).
+alter table public.bets add column if not exists stake double precision check (stake is null or stake > 0);
 
 -- ---------- Run actions: bank, end run, pause, resume, target change ----------
 create table if not exists public.tracker_actions (
@@ -112,6 +117,9 @@ begin
   if not exists (select 1 from public.trackers t where t.id = new.tracker_id and t.user_id = new.user_id) then
     raise exception 'That tracker isn''t yours.';
   end if;
+  if (new.stake is not null) <> exists (select 1 from public.trackers t where t.id = new.tracker_id and t.kind = 'regular') then
+    raise exception 'Bets on a regular tracker need a stake; compounding bets stake the whole balance.';
+  end if;
   if new.result <> 'pending' and new.settled_at is null then new.settled_at := new.created_at; end if;
   return new;
 end $$;
@@ -138,7 +146,10 @@ begin
   if details and now_ms - old.created_at > 86400000 then
     raise exception 'Bet, sport and link lock 24 hours after the bet is logged. Only the odds can still change.';
   end if;
-  if (details or new.odds <> old.odds) and not grew then
+  if (new.stake is null) <> (old.stake is null) then
+    raise exception 'A bet can''t switch between a set stake and the whole balance.';
+  end if;
+  if (details or new.odds <> old.odds or new.stake is distinct from old.stake) and not grew then
     raise exception 'Every change to a logged bet has to be recorded in its edit history.';
   end if;
   if new.result <> old.result then
@@ -176,6 +187,8 @@ begin
     new.user_id := auth.uid();
   elsif new.user_id <> old.user_id or new.created_at <> old.created_at then
     raise exception 'A tracker can''t change owner or creation date.';
+  elsif new.kind <> old.kind then
+    raise exception 'A tracker can''t switch between compounding and regular.';
   end if;
   new.updated_at := now();
   return new;
@@ -318,7 +331,8 @@ declare
   odds double precision; need integer; pick record; picked boolean := false; pick_streak integer := -1;
 begin
   -- Only trackers you show to others count towards the streak friends and the community see.
-  for t in select * from public.trackers where user_id = uid and shared order by position, created_at loop
+  -- Streaks and tiers come from compounding trackers only; regular trackers have their own leaderboard.
+  for t in select * from public.trackers where user_id = uid and shared and kind = 'compound' order by position, created_at loop
     bal := t.start_balance; streak := 0;
     for e in
       select 0 as k, b.created_at as at, b.id as id, b.result, b.odds, null::text as type, null::jsonb as payload
@@ -1118,7 +1132,7 @@ declare b record; run integer := 0; best integer := 0;
 begin
   for b in select x.result from public.bets x
             where x.user_id = uid and x.logged_at >= s and x.logged_at <= e
-              and exists (select 1 from public.trackers t where t.id = x.tracker_id and t.shared)
+              and exists (select 1 from public.trackers t where t.id = x.tracker_id and t.shared and t.kind = 'compound')
               and x.created_at >= s_ms - 300000 and x.result <> 'pending' and x.settled_at <= e_ms
             order by x.created_at, x.id loop
     if b.result = 'win' then run := run + 1; best := greatest(best, run); else run := 0; end if;
@@ -1441,7 +1455,7 @@ language sql stable security definer set search_path = public as $$
                  nullif(b.proof, '') as proof, b.verified_at,
                  (select count(*) from public.bet_flags f where f.bet_id = b.id) as flags,
                  exists (select 1 from public.bet_flags f where f.bet_id = b.id and f.user_id = auth.uid()) as my_flag,
-                 t.name as tracker, t.accent
+                 t.name as tracker, t.accent, b.stake, t.kind
             from public.bets b join public.trackers t on t.id = b.tracker_id
            where b.user_id = other and t.shared
            order by b.created_at desc, b.id desc
@@ -1483,3 +1497,57 @@ grant execute on function public.new_joiners(integer) to authenticated;
 do $$ declare u uuid; begin
   for u in select user_id from public.profile_live where pending and odds is null loop perform public.recompute_profile_stats(u); end loop;
 end $$;
+
+-- =====================================================================
+-- Stage 16: regular betting trackers
+-- (trackers.kind and bets.stake are added near the top.)
+-- The Regular leaderboard: everyone's shared regular trackers added up.
+-- Ranked by profit as a share of their starting balances ('pct'), or by dollars ('profit').
+-- =====================================================================
+drop function if exists public.regular_board(text, text, integer);
+create or replace function public.regular_board(scope text default 'friends', by text default 'pct', lim integer default 50)
+returns table (rank bigint, id uuid, display_name text, avatar_url text, streak integer, tier_idx integer, is_me boolean,
+               start double precision, profit double precision, staked double precision, wins integer, losses integer,
+               pending integer, in_play double precision, trackers integer, score double precision)
+language sql stable security definer set search_path = public as $$
+  with pool as (
+    select p.* from public.profiles p
+     where auth.uid() is not null
+       and (p.id = auth.uid() or scope = 'everyone'
+            or exists (select 1 from public.friendships f
+                        where f.status = 'accepted'
+                          and ((f.requester = auth.uid() and f.addressee = p.id) or (f.addressee = auth.uid() and f.requester = p.id))))
+  ), tr as (
+    select t.user_id, t.start_balance,
+           coalesce(sum(case when b.result = 'win' then b.stake * (b.odds - 1) when b.result = 'loss' then -b.stake else 0 end), 0) as profit,
+           coalesce(sum(b.stake) filter (where b.result <> 'pending'), 0) as staked,
+           count(b.id) filter (where b.result = 'win') as wins,
+           count(b.id) filter (where b.result = 'loss') as losses,
+           count(b.id) filter (where b.result = 'pending') as pending,
+           coalesce(sum(b.stake) filter (where b.result = 'pending'), 0) as in_play
+      from public.trackers t left join public.bets b on b.tracker_id = t.id and b.stake is not null
+     where t.kind = 'regular' and t.shared and t.user_id in (select pool.id from pool)
+     group by t.id, t.user_id, t.start_balance
+  ), agg as (
+    select user_id, sum(start_balance) as start, sum(profit) as profit, sum(staked) as staked, sum(wins)::integer as wins,
+           sum(losses)::integer as losses, sum(pending)::integer as pending, sum(in_play) as in_play, count(*)::integer as trackers
+      from tr group by user_id
+  ), scored as (
+    select p.id, p.display_name, p.avatar_url, p.streak, p.tier_idx, a.start, a.profit, a.staked, a.wins, a.losses, a.pending, a.in_play, a.trackers,
+           case when by = 'profit' then a.profit else a.profit / nullif(a.start, 0) end as score
+      from agg a join pool p on p.id = a.user_id
+     where scope <> 'everyone' or a.staked > 0 or p.id = auth.uid()
+  ), ranked as (
+    select rank() over (order by coalesce(score, 0) desc) as rank, scored.* from scored
+  )
+  select r.rank, r.id, r.display_name, r.avatar_url, r.streak, r.tier_idx, r.id = auth.uid(),
+         r.start, round(r.profit::numeric, 2)::double precision, r.staked, r.wins, r.losses, r.pending, r.in_play, r.trackers, r.score
+    from ranked r
+   where r.rank <= least(greatest(lim, 1), 100) or r.id = auth.uid()
+   order by r.rank, r.display_name;
+$$;
+revoke all on function public.regular_board(text, text, integer) from public, anon;
+grant execute on function public.regular_board(text, text, integer) to authenticated;
+
+-- Streaks only count compounding trackers now, so bring every profile up to date.
+select public.recompute_profile_stats(id) from public.profiles;
