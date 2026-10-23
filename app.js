@@ -1943,11 +1943,11 @@ function renderSetupNeeded() {
 }
 
 /* ---------- Launch splash ----------
-   Shown from the page itself so it appears straight away; once the first screen is ready the ring finishes charging and it fades out. */
-const SPLASH_MIN = 4100;
+   Shown from the page itself so it appears straight away; once the first screen is ready the ring finishes charging, the chopper flies off and it fades out. */
+const SPLASH_MIN = 3400;
 function hideSplash() {
   const s = document.getElementById("splash"); if (!s || s.dataset.going) return; s.dataset.going = "1";
-  setTimeout(() => { s.classList.add("done"); setTimeout(() => { s.classList.add("gone"); setTimeout(() => s.remove(), 520); }, 380); }, Math.max(0, SPLASH_MIN - performance.now()));
+  setTimeout(() => { s.classList.add("done"); setTimeout(() => { s.classList.add("gone"); setTimeout(() => s.remove(), 520); }, 1100); }, Math.max(0, SPLASH_MIN - performance.now()));
 }
 setTimeout(hideSplash, 9000);
 
