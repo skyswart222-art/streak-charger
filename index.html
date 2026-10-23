@@ -653,12 +653,28 @@ html { touch-action: manipulation; -webkit-text-size-adjust: 100%; text-size-adj
 .cmp-row .cmp-ic, .cmp-row .cmp-send { width: 40px; height: 40px; font-size: 18px; }
 .cmp-row textarea { min-width: 0; min-height: 40px; padding: 9px 13px; }
 .cmp-row .cmp-mic[hidden], .cmp-row .cmp-send[hidden] { display: none; }
-.cmp-rec { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 2px; }
+.cmp-row { position: relative; }
+.cmp-row .cmp-mic { touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; position: relative; z-index: 2; transition: transform .18s cubic-bezier(.2,1.4,.4,1), background .18s, color .18s; }
+.cmp-mic svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.cmp-mic svg rect { fill: currentColor; stroke: none; }
+/* Holding the mic: it swells under your thumb and turns red */
+.cmp-row .cmp-mic.holding, .cmp-row.recording .cmp-mic { transform: scale(1.55); background: #ff4d5e; color: #fff; border-color: transparent; box-shadow: 0 0 0 0 rgba(255,77,94,.5); animation: recpulse 1.2s infinite; }
+.cmp-row.recording > :not(.cmp-mic):not(.cmp-rec) { visibility: hidden; }
+.cmp-rec { position: absolute; inset: 0 56px 0 0; display: flex; align-items: center; gap: 10px; padding: 0 12px; border-radius: 22px; background: var(--field); border: 1px solid var(--stroke);
+  transform: translateX(calc(var(--slide, 0) * -14px)); transition: background .15s; animation: rec-in .18s ease-out; }
 .cmp-rec[hidden] { display: none; }
+.cmp-rec.binning { background: color-mix(in srgb, #ff4d5e 22%, var(--field)); }
+@keyframes rec-in { from { opacity: 0; transform: translateX(14px); } }
+.rec-wave { flex: 1; min-width: 0; height: 22px; display: flex; align-items: center; gap: 2px; overflow: hidden; opacity: calc(1 - var(--slide, 0) * .7); }
+.rec-wave i { flex: 1; max-width: 4px; height: 100%; border-radius: 2px; background: #ff6b78; transform: scaleY(.08); transition: transform .07s linear; }
+.rec-wave.idle i { animation: rec-idle 1s ease-in-out infinite; } .rec-wave.idle i:nth-child(odd) { animation-delay: .3s; } .rec-wave.idle i:nth-child(3n) { animation-delay: .55s; }
+@keyframes rec-idle { 50% { transform: scaleY(.6); } }
 .rec-dot { width: 12px; height: 12px; border-radius: 50%; background: #ff4d5e; box-shadow: 0 0 0 0 rgba(255,77,94,.6); animation: recpulse 1.2s infinite; flex: none; }
 @keyframes recpulse { 0% { box-shadow: 0 0 0 0 rgba(255,77,94,.6); } 70% { box-shadow: 0 0 0 10px rgba(255,77,94,0); } 100% { box-shadow: 0 0 0 0 rgba(255,77,94,0); } }
 .rec-time { font-variant-numeric: tabular-nums; font-weight: 700; }
-.rec-hint { flex: 1; color: var(--muted); font-size: 13px; }
+.rec-hint { flex: none; color: var(--muted); font-size: 12px; white-space: nowrap; }
+.cmp-rec.binning .rec-hint { color: #ff4d5e; font-weight: 700; }
+@media (prefers-reduced-motion: reduce) { .cmp-row .cmp-mic.holding, .cmp-row.recording .cmp-mic, .rec-wave.idle i, .cmp-rec { animation: none; } }
 .bubble.has-photo { padding: 4px 4px 6px; }
 .bubble.has-photo .mtext { padding: 4px 9px 0; }
 .bubble.has-photo .mtime { padding-right: 8px; }

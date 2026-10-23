@@ -2723,11 +2723,10 @@ function composerHTML() {
       <div class="cmp-row" id="cmpRow"><button class="cmp-ic" id="cmpPhoto" aria-label="Send a photo">＋</button><input type="file" id="cmpFile" accept="image/*" hidden>
         <button class="cmp-ic" id="cmpShare" aria-label="Share a bet">🎟️</button>
         <textarea id="cmpText" rows="1" maxlength="1000" placeholder="Message"></textarea>
-        <button class="cmp-ic cmp-mic" id="cmpMic" aria-label="Record a voice note">🎤</button>
-        <button class="cmp-send" id="cmpSend" aria-label="Send"><svg viewBox="0 0 24 24"><path d="M4 12 20 4l-6 16-3-7z"/></svg></button></div>
-      <div class="cmp-rec" id="cmpRec" hidden><button class="cmp-ic" id="recCancel" aria-label="Cancel voice note">✕</button>
-        <span class="rec-dot"></span><span class="rec-time" id="recTime">0:00</span><span class="rec-hint">Recording…</span>
-        <button class="cmp-send" id="recSend" aria-label="Send voice note"><svg viewBox="0 0 24 24"><path d="M4 12 20 4l-6 16-3-7z"/></svg></button></div>`;
+        <button class="cmp-ic cmp-mic" id="cmpMic" aria-label="Hold to record a voice note, let go to send"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></button>
+        <button class="cmp-send" id="cmpSend" aria-label="Send"><svg viewBox="0 0 24 24"><path d="M4 12 20 4l-6 16-3-7z"/></svg></button>
+        <div class="cmp-rec" id="cmpRec" hidden><span class="rec-dot"></span><span class="rec-time" id="recTime">0:00</span>
+          <span class="rec-wave" id="recWave">${"<i></i>".repeat(18)}</span><span class="rec-hint" id="recHint">‹ Slide to cancel</span></div></div>`;
 }
 function renderGroupConvo() {
   const g = groupOf(chatWith), c = convos[chatWith];
@@ -2755,9 +2754,7 @@ function wireComposer() {
     $("#cmpShare").onclick = pickBet;
     $("#cmpPhoto").onclick = () => $("#cmpFile").click();
     $("#cmpFile").onchange = e => { const f = e.target.files && e.target.files[0]; e.target.value = ""; if (f) sendPhoto(f); };
-    $("#cmpMic").onclick = startVoice;
-    $("#recCancel").onclick = () => stopVoice(false);
-    $("#recSend").onclick = () => stopVoice(true);
+    holdToTalk($("#cmpMic"));
     micOrSend();
   }
 }
@@ -2795,39 +2792,99 @@ function sendPhoto(file) {
     return { path: await Cloud.uploadChatMedia(blob, "jpg", "image/jpeg"), kind: "photo", meta: { w, h } };
   }, "📷 Sending photo…");
 }
-// Voice notes: tap 🎤 to record, ✕ to bin it, or the arrow to send. Two minutes at most.
+// Voice notes: hold 🎤 to record and let go to send, like a walkie-talkie. Slide left before letting go to bin it. Two minutes at most.
 let rec = null;
-const VOICE_MAX = 120;
-async function startVoice() {
+const VOICE_MAX = 120, VOICE_CANCEL = 80;
+function holdToTalk(btn) {
+  let hold = null;
+  const end = e => {
+    if (!hold || (e && e.pointerId !== undefined && e.pointerId !== hold.id)) return;
+    const h = hold; hold = null; btn.classList.remove("holding");
+    const cancel = h.cancel || (e && e.type === "pointercancel");
+    if (rec) return stopVoice(!cancel);
+    h.released = true; // let go before the mic was ready; startVoice explains
+  };
+  btn.addEventListener("contextmenu", e => e.preventDefault());
+  btn.addEventListener("pointerdown", e => {
+    if (e.button > 0 || hold || rec || sending) return;
+    e.preventDefault();
+    try { btn.setPointerCapture(e.pointerId); } catch (_) {}
+    hold = { id: e.pointerId, x: e.clientX, at: Date.now(), cancel: false };
+    btn.classList.add("holding");
+    startVoice(hold);
+  });
+  btn.addEventListener("pointermove", e => {
+    if (!hold || e.pointerId !== hold.id || !rec) return;
+    const dx = Math.min(0, e.clientX - hold.x), off = Math.min(1, -dx / VOICE_CANCEL);
+    hold.cancel = off >= 1;
+    const bar = $("#cmpRec"); if (bar) { bar.style.setProperty("--slide", off); bar.classList.toggle("binning", hold.cancel); }
+    const hint = $("#recHint"); if (hint) hint.textContent = hold.cancel ? "Let go to cancel" : "‹ Slide to cancel";
+  });
+  btn.addEventListener("pointerup", end);
+  btn.addEventListener("pointercancel", end);
+  btn.addEventListener("lostpointercapture", end);
+  // Keyboard: hold Space or Enter
+  btn.addEventListener("keydown", e => { if ((e.key === " " || e.key === "Enter") && !e.repeat && !hold && !rec) { e.preventDefault(); hold = { at: Date.now(), cancel: false }; btn.classList.add("holding"); startVoice(hold); } });
+  btn.addEventListener("keyup", e => { if (e.key === " " || e.key === "Enter") { e.preventDefault(); end(); } });
+}
+async function startVoice(hold) {
   if (rec || sending) return;
-  if (!navigator.mediaDevices || !window.MediaRecorder) return toast("Voice notes don't work in this browser.", "bad");
+  if (!navigator.mediaDevices || !window.MediaRecorder) { hold.released = true; return toast("Voice notes don't work in this browser.", "bad"); }
   let stream;
   try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
   catch (e) { return toast("Allow the microphone for this app to send voice notes. On iPhone: Settings, then Safari, then Microphone.", "bad"); }
+  // Let go while the phone was still asking for the mic: nothing to record yet
+  if (hold.released) { stream.getTracks().forEach(t => t.stop()); return toast("Hold 🎤 while you talk, then let go to send."); }
   const type = ["audio/mp4", "audio/webm;codecs=opus", "audio/webm", "audio/ogg"].find(t => MediaRecorder.isTypeSupported(t)) || "";
   const mr = new MediaRecorder(stream, type ? { mimeType: type } : undefined), chunks = [];
   mr.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
   rec = { mr, stream, chunks, start: Date.now(), to: chatWith, send: false };
   mr.onstop = () => {
-    const r = rec; rec = null; stream.getTracks().forEach(t => t.stop()); clearInterval(r.tick); showRec(false);
+    const r = rec; rec = null; stream.getTracks().forEach(t => t.stop()); clearInterval(r.tick); cancelAnimationFrame(r.raf); if (r.ac) r.ac.close().catch(() => {}); showRec(false);
     const dur = (Date.now() - r.start) / 1000;
     if (!r.send) return;
-    if (dur < 1) return toast("That was too short to send. Tap 🎤 and talk, then tap send.");
+    if (dur < 1) return toast("Too short. Hold 🎤 while you talk, then let go to send.");
     const mime = (mr.mimeType || type || "audio/mp4").split(";")[0], ext = /mp4|aac/.test(mime) ? "m4a" : /ogg/.test(mime) ? "ogg" : "webm";
     const blob = new Blob(r.chunks, { type: mime });
     if (chatWith !== r.to) return;
     sendMedia(async () => ({ path: await Cloud.uploadChatMedia(blob, ext, mime === "audio/mp4" ? "audio/mp4" : mime), kind: "voice", meta: { dur: Math.round(dur * 10) / 10 } }), "🎤 Sending voice note…");
   };
   mr.start(250);
+  if (navigator.vibrate) navigator.vibrate(12);
   rec.tick = setInterval(() => {
     const sec = Math.floor((Date.now() - rec.start) / 1000), el = $("#recTime");
     if (el) el.textContent = clock(sec); else return stopVoice(false); // left the chat
     if (sec >= VOICE_MAX) stopVoice(true);
   }, 250);
   showRec(true);
+  recLevels(rec);
+}
+// The little bars bounce with your voice while recording
+function recLevels(r) {
+  const bars = [...document.querySelectorAll("#recWave i")]; if (!bars.length) return;
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext; r.ac = new AC(); r.ac.resume();
+    const an = r.ac.createAnalyser(); an.fftSize = 256; r.ac.createMediaStreamSource(r.stream).connect(an);
+    const buf = new Uint8Array(an.fftSize), hist = bars.map(() => .08);
+    let last = 0;
+    const draw = t => {
+      if (rec !== r) return;
+      r.raf = requestAnimationFrame(draw);
+      if (t - last < 70) return; last = t;
+      an.getByteTimeDomainData(buf);
+      let peak = 0; for (const v of buf) peak = Math.max(peak, Math.abs(v - 128));
+      hist.shift(); hist.push(Math.max(.08, Math.min(1, peak / 48)));
+      bars.forEach((b, i) => b.style.transform = `scaleY(${hist[i]})`);
+    };
+    r.raf = requestAnimationFrame(draw);
+  } catch (e) { $("#recWave").classList.add("idle"); }
 }
 function stopVoice(send) { if (!rec) return; rec.send = send; if (rec.mr.state !== "inactive") rec.mr.stop(); }
-function showRec(on) { const a = $("#cmpRow"), b = $("#cmpRec"); if (a) a.hidden = on; if (b) b.hidden = !on; if (on && $("#recTime")) $("#recTime").textContent = "0:00"; }
+function showRec(on) {
+  const row = $("#cmpRow"), b = $("#cmpRec"); if (!b) return;
+  row.classList.toggle("recording", on); b.hidden = !on;
+  if (on) { $("#recTime").textContent = "0:00"; $("#recHint").textContent = "‹ Slide to cancel"; b.style.setProperty("--slide", 0); b.classList.remove("binning"); }
+}
 const clock = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 function mediaHTML(m) {
   if (m.media_kind === "photo") {
@@ -2873,7 +2930,7 @@ function renderConvoBody(keepTop) {
   const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80 || !box.dataset.ready;
   const prevH = document.documentElement.scrollHeight;
   let html = c.done ? "" : `<button class="linkbtn convo-older" data-chatolder>Show earlier messages</button>`, lastDay = "";
-  if (!c.msgs.length) html += `<div class="cap convo-empty">Say hi 👋, tap 🎟️ to share one of your bets, ＋ for a photo or 🎤 for a voice note.</div>`;
+  if (!c.msgs.length) html += `<div class="cap convo-empty">Say hi 👋, tap 🎟️ to share one of your bets, ＋ for a photo, or hold 🎤 to send a voice note.</div>`;
   const lastMine = [...c.msgs].reverse().find(m => m.sender === me), group = isGroup(chatWith);
   let prevSender = null;
   for (const m of c.msgs) {
