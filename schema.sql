@@ -35,6 +35,8 @@ create table if not exists public.profile_live (
   updated_at timestamptz not null default now()
 );
 alter table public.profile_live enable row level security;
+-- Odds of the bet running on that tracker, so friends can see how risky it is.
+alter table public.profile_live add column if not exists odds double precision;
 
 -- ---------- Settings: themes, achievements, recent sports, stats layout ----------
 create table if not exists public.user_settings (
@@ -349,16 +351,17 @@ begin
                    else greatest(1, ceil(ln(t.target / bal) / ln(odds) - 1e-9))::integer end;
       select t.name as name, streak as streak, bal as balance, t.start_balance as start, t.target as target, need as to_go,
              case when bal >= t.target then 1.0 when need is null or streak + need = 0 then 0.0 else streak::double precision / (streak + need) end as frac,
-             exists (select 1 from public.bets b where b.tracker_id = t.id and b.result = 'pending') as pending
+             exists (select 1 from public.bets b where b.tracker_id = t.id and b.result = 'pending') as pending,
+             (select b.odds from public.bets b where b.tracker_id = t.id and b.result = 'pending' order by b.created_at desc, b.id desc limit 1) as pending_odds
         into pick;
       picked := true; pick_streak := streak;
     end if;
   end loop;
   if picked then
-    insert into public.profile_live (user_id, tracker, streak, balance, start, target, to_go, frac, pending, updated_at)
-    values (uid, pick.name, pick.streak, round(pick.balance::numeric, 2), pick.start, pick.target, pick.to_go, pick.frac, pick.pending, now())
+    insert into public.profile_live (user_id, tracker, streak, balance, start, target, to_go, frac, pending, odds, updated_at)
+    values (uid, pick.name, pick.streak, round(pick.balance::numeric, 2), pick.start, pick.target, pick.to_go, pick.frac, pick.pending, pick.pending_odds, now())
     on conflict (user_id) do update set tracker = excluded.tracker, streak = excluded.streak, balance = excluded.balance, start = excluded.start,
-      target = excluded.target, to_go = excluded.to_go, frac = excluded.frac, pending = excluded.pending, updated_at = now();
+      target = excluded.target, to_go = excluded.to_go, frac = excluded.frac, pending = excluded.pending, odds = excluded.odds, updated_at = now();
   else
     delete from public.profile_live where user_id = uid;
   end if;
@@ -1458,3 +1461,25 @@ language sql stable security definer set search_path = public as $$
     or exists (select 1 from public.bets b join public.trackers t on t.id = b.tracker_id
                 where (b.slip = path or b.proof = path) and t.shared and public.are_friends(auth.uid(), b.user_id)));
 $$;
+
+-- =====================================================================
+-- Stage 15: new joiners in Friends, and risky bets on the leaderboard
+-- The latest people to sign up, newest first, so you can add them.
+-- (profile_live.odds, near the top, carries a running bet's odds.)
+-- =====================================================================
+create or replace function public.new_joiners(lim integer default 30)
+returns table (id uuid, display_name text, avatar_url text, streak integer, tier_idx integer, joined_at timestamptz)
+language sql stable set search_path = public as $$
+  select p.id, p.display_name, p.avatar_url, p.streak, p.tier_idx, p.created_at
+    from public.profiles p
+   where auth.uid() is not null and p.id <> auth.uid()
+   order by p.created_at desc, p.id
+   limit least(greatest(lim, 1), 50);
+$$;
+revoke all on function public.new_joiners(integer) from public, anon;
+grant execute on function public.new_joiners(integer) to authenticated;
+
+-- Fill in the odds for bets already running when this stage is added.
+do $$ declare u uuid; begin
+  for u in select user_id from public.profile_live where pending and odds is null loop perform public.recompute_profile_stats(u); end loop;
+end $$;
