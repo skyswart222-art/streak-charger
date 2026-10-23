@@ -306,7 +306,7 @@ create policy "avatar delete own folder" on storage.objects for delete to authen
 -- is recalculated from their logged bets, using the same rules as the app.
 -- =====================================================================
 create or replace function public.tier_for(n integer) returns integer language sql immutable as $$
-  select (select count(*) from unnest(array[0,5,10,15,20,25,35,50,65,80,90,100,125,150,175,200]) m where m <= n)::integer - 1;
+  select (select count(*) from unnest(array[0,2,4,6,8,11,14,17,21,25,30,35,40,47,54,62,71,81,92,110,135,165,200]) m where m <= n)::integer - 1;
 $$;
 
 create or replace function public.recompute_profile_stats(uid uuid) returns void

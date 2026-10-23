@@ -8,24 +8,36 @@
 const KEY = "streak-charger.v1";
 const DAY = 864e5;
 const R = 104, C = 2 * Math.PI * R;
-const TIERS = [
-  { min: 0,   sym: "🐣", name: "Fresh Meat",  c1: "#c2c9d3", c2: "#7b8594", badge: "plain",  fx: {} },
-  { min: 5,   sym: "🧻", name: "Dunny Diver", c1: "#9cf5a6", c2: "#2fbf55", badge: "plain",  fx: { glow: 2 } },
-  { min: 10,  sym: "🥴", name: "Hungover Hand", c1: "#ffc48a", c2: "#ff7a2f", badge: "glow",   fx: { glow: 6 } },
-  { min: 15,  sym: "🐖", name: "Rig Pig",     c1: "#d4e4ff", c2: "#6d8cff", badge: "glow",   fx: { glow: 10, pulse: 1 } },
-  { min: 20,  sym: "🍺", name: "Piss Artist", c1: "#ffd36b", c2: "#ff5a1f", badge: "flame",  fx: { glow: 10, pulse: 1, flames: ["#ffe08a", "#ff4d00"], fl: .6 } },
-  { min: 25,  sym: "🔧", name: "Hard Bastard", c1: "#ffe66b", c2: "#ff2d55", badge: "flame",  fx: { glow: 12, pulse: 1, flames: ["#fff0a0", "#ff2d55"], fl: 1, sparkles: "#ffe66b", sc: 8 } },
-  { min: 35,  sym: "😤", name: "Cocky Prick", c1: "#e0fdff", c2: "#3ad6ff", badge: "glow",   fx: { glow: 14, pulse: 1, sparkles: "#f0feff", sc: 22 } },
-  { min: 50,  sym: "💸", name: "Cashed-Up Bogan", c1: "#a6f0ff", c2: "#5b6cff", badge: "cosmic", fx: { glow: 14, pulse: 1, comet: "#cdf6ff", sparkles: "#cfe8ff", sc: 12 } },
-  { min: 65,  sym: "🧨", name: "Absolute Unit", c1: "#ffa06b", c2: "#d4142f", badge: "flame",  fx: { glow: 16, pulse: 1, flames: ["#ffb36b", "#d4142f"], fl: 1.7, sparkles: "#ffb36b", sc: 8 } },
-  { min: 80,  sym: "🐐", name: "Filthy Animal", c1: "#fff7b0", c2: "#ffbf00", badge: "glow",   fx: { glow: 18, pulse: 1, sparkles: "#fff3a0", sc: 30, burst: "#ffd84a" } },
-  { min: 90,  sym: "🍻", name: "Shout's On Me", c1: "#ffe9a0", c2: "#e3a400", badge: "flame",  fx: { glow: 18, pulse: 1, flames: ["#fff2b0", "#e3a400"], fl: 1.4, sparkles: "#fff3a0", sc: 12 } },
-  { min: 100, sym: "👔", name: "Company Bastard", c1: "#fff6c2", c2: "#f5c518", badge: "flame",  fx: { glow: 20, pulse: 1, flames: ["#fff6c2", "#f5a518"], fl: 1.6, halo: ["#f5c518", "#fff6c2", "#b8860b", "#f5c518"] } },
-  { min: 125, sym: "🐋", name: "Fat Whale",   c1: "#b4fff3", c2: "#00b3a4", badge: "cosmic", fx: { glow: 20, pulse: 1, lightning: "#c8fff7", halo: ["#00b3a4", "#b4fff3", "#006d66", "#00b3a4"], sparkles: "#b4fff3", sc: 12 } },
-  { min: 150, sym: "🤑", name: "Lucky Prick", c1: "#d4b8ff", c2: "#6a3cff", badge: "cosmic", fx: { glow: 22, pulse: 1, halo: ["#6a3cff", "#ff5fd2", "#3ad6ff", "#6a3cff"], orbiters: 8, sparkles: "#ffffff", sc: 22 } },
-  { min: 175, sym: "🚁", name: "Last Chopper Out", c1: "#fff1b8", c2: "#ff6a00", badge: "cosmic", fx: { glow: 24, pulse: 1, halo: ["#ff6a00", "#ffd84a", "#ff2d55", "#ff6a00"], burst: "#fff1b8", flames: ["#fff1b8", "#ff6a00"], fl: 1.2, orbiters: 4 } },
-  { min: 200, sym: "♾️", name: "Pipe Dream",  c1: "#ffffff", c2: "#b06bff", badge: "cosmic", fx: { glow: 26, pulse: 1, halo: ["#ff5f5f", "#ffd84a", "#39ff88", "#3ad6ff", "#b06bff", "#ff5f5f"], orbiters: 10, comet: "#ffffff", sparkles: "#ffffff", sc: 26, burst: "#ffffff" } },
+// Ranked ladder: nine ranks everyone can read at a glance, three levels in each colour (I, II, III going up),
+// spaced out under 200 wins. The old rig names live on as each rank's nickname.
+const RANKS = [
+  { rank: "Rookie",   nick: "Fresh Meat",       sym: "🐣", c1: "#c2c9d3", c2: "#7b8594", mins: [0] },
+  { rank: "Bronze",   nick: "Dunny Diver",      sym: "🔩", c1: "#f3c49b", c2: "#a8622c", mins: [2, 4, 6] },
+  { rank: "Silver",   nick: "Hungover Hand",    sym: "⚙️", c1: "#f2f5f9", c2: "#8d99ab", mins: [8, 11, 14] },
+  { rank: "Gold",     nick: "Rig Pig",          sym: "🪙", c1: "#fff1a8", c2: "#e0a400", mins: [17, 21, 25] },
+  { rank: "Platinum", nick: "Hard Bastard",     sym: "💠", c1: "#dcfff8", c2: "#2fb8a6", mins: [30, 35, 40] },
+  { rank: "Diamond",  nick: "Cashed-Up Bogan",  sym: "💎", c1: "#d9f2ff", c2: "#3a86ff", mins: [47, 54, 62] },
+  { rank: "Elite",    nick: "Absolute Unit",    sym: "⚡", c1: "#ffc2d1", c2: "#e0245e", mins: [71, 81, 92] },
+  { rank: "Champion", nick: "Company Bastard",  sym: "🏆", c1: "#e6d1ff", c2: "#7b3cff", mins: [110, 135, 165] },
+  { rank: "Legend",   nick: "Last Chopper Out", sym: "👑", c1: "#ffffff", c2: "#b06bff", mins: [200] },
 ];
+// Effects build within each rank and step up between ranks.
+const RANK_FX = [
+  [["plain", {}]],
+  [["plain", { glow: 2 }], ["plain", { glow: 4 }], ["glow", { glow: 6 }]],
+  [["glow", { glow: 6 }], ["glow", { glow: 8, pulse: 1 }], ["glow", { glow: 10, pulse: 1, sparkles: "#ffffff", sc: 8 }]],
+  [["glow", { glow: 10, pulse: 1, sparkles: "#fff3a0", sc: 10 }], ["flame", { glow: 12, pulse: 1, flames: ["#fff3a0", "#e0a400"], fl: .6 }], ["flame", { glow: 12, pulse: 1, flames: ["#fff3a0", "#e0a400"], fl: 1, sparkles: "#fff3a0", sc: 10 }]],
+  [["glow", { glow: 12, pulse: 1, sparkles: "#dcfff8", sc: 14 }], ["glow", { glow: 14, pulse: 1, sparkles: "#dcfff8", sc: 22 }], ["cosmic", { glow: 14, pulse: 1, comet: "#dcfff8", sparkles: "#dcfff8", sc: 14 }]],
+  [["glow", { glow: 16, pulse: 1, sparkles: "#e6f6ff", sc: 26, burst: "#9fd0ff" }], ["cosmic", { glow: 16, pulse: 1, comet: "#e6f6ff", sparkles: "#e6f6ff", sc: 16 }], ["cosmic", { glow: 18, pulse: 1, comet: "#ffffff", halo: ["#3a86ff", "#d9f2ff", "#1d4fb8", "#3a86ff"], sparkles: "#e6f6ff", sc: 16 }]],
+  [["flame", { glow: 18, pulse: 1, flames: ["#ffc2d1", "#e0245e"], fl: 1.4, sparkles: "#ffc2d1", sc: 8 }], ["flame", { glow: 18, pulse: 1, flames: ["#ffd0dc", "#e0245e"], fl: 1.7, sparkles: "#ffc2d1", sc: 12 }], ["flame", { glow: 20, pulse: 1, flames: ["#ffe0e8", "#e0245e"], fl: 1.7, halo: ["#e0245e", "#ffc2d1", "#8a0f33", "#e0245e"] }]],
+  [["cosmic", { glow: 20, pulse: 1, halo: ["#7b3cff", "#e6d1ff", "#3d1a8a", "#7b3cff"], orbiters: 4, sparkles: "#ffffff", sc: 14 }], ["cosmic", { glow: 22, pulse: 1, lightning: "#e6d1ff", halo: ["#7b3cff", "#ff5fd2", "#3ad6ff", "#7b3cff"], orbiters: 8, sparkles: "#ffffff", sc: 18 }], ["cosmic", { glow: 24, pulse: 1, halo: ["#7b3cff", "#ffd84a", "#ff5fd2", "#7b3cff"], burst: "#fff1b8", flames: ["#f3e8ff", "#7b3cff"], fl: 1.2, orbiters: 8 }]],
+  [["cosmic", { glow: 26, pulse: 1, halo: ["#ff5f5f", "#ffd84a", "#39ff88", "#3ad6ff", "#b06bff", "#ff5f5f"], orbiters: 10, comet: "#ffffff", sparkles: "#ffffff", sc: 26, burst: "#ffffff" }]],
+];
+const TIERS = RANKS.flatMap((r, ri) => r.mins.map((min, li) => ({
+  min, sym: r.sym, rank: r.rank, level: r.mins.length > 1 ? ["I", "II", "III"][li] : "", nick: r.nick,
+  name: r.mins.length > 1 ? `${r.rank} ${["I", "II", "III"][li]}` : r.rank,
+  c1: r.c1, c2: r.c2, badge: RANK_FX[ri][li][0], fx: RANK_FX[ri][li][1],
+})));
 TIERS.forEach((t, i) => t.idx = i);
 const GOLD = { c1: "#fff3b0", c2: "#e8a90c" };
 const RISKS = [
@@ -416,9 +428,9 @@ const ACH = [
   { id: "ice_cold", e: "🧊", n: "Ice cold", d: "Win a bet at odds under 1.03" },
   { id: "iron_nerves", e: "💀", n: "Iron nerves", d: "Win a Super risky bet (2.00–3.00)" },
   { id: "big_swing", e: "🎰", n: "Big swing", d: "Win an All in bet (over 3.00)" },
-  { id: "frog", e: "🧻", n: "Dunny duty", d: "Reach Dunny Diver (5 wins)" },
-  { id: "blazing", e: "🍺", n: "On the piss", d: "Reach Piss Artist (20 wins)" },
-  { id: "comet", e: "💸", n: "Cashed up", d: "Reach Cashed-Up Bogan (50 wins)" },
+  { id: "frog", e: "🧻", n: "Dunny duty", d: "Reach a 5-win streak" },
+  { id: "blazing", e: "🍺", n: "On the piss", d: "Reach a 20-win streak" },
+  { id: "comet", e: "💸", n: "Cashed up", d: "Reach a 50-win streak" },
   { id: "thousand", e: "💵", n: "Four figures", d: "Run a balance past $1,000" },
   { id: "tenk", e: "💰", n: "Five figures", d: "Run a balance past $10,000" },
   { id: "target", e: "🏁", n: "Target smashed", d: "Reach a tracker's target" },
@@ -561,7 +573,7 @@ function renderHome(anim) {
     ${s.risk && !t.paused ? `<div class="glass risk-banner" style="--rc:${s.risk.c}"><span class="big">${s.risk.sym}</span><div style="min-width:0"><b>${s.risk.name}</b><div class="s">${esc(s.pendingBet.text)} @ ${odds2(s.pendingBet.odds)} · ${money(s.balance)} on the line</div></div></div>` : ""}
     <div class="glass stats">
       <div class="stat"><div class="k">Typical odds</div><div class="v">${odds2(s.odds)}</div><div class="s">${autoNote}</div></div>
-      <div class="stat"><div class="k">${nt ? "Next tier" : "Top tier"}</div><div class="v">${nt ? nt.sym + " " + (nt.min - s.streak) : "♾️"}</div><div class="s">${nt ? `${plural(nt.min - s.streak, "win")} to ${nt.name}` : "nothing above"}</div></div>
+      <div class="stat"><div class="k">${nt ? "Next rank" : "Top rank"}</div><div class="v">${nt ? nt.sym + " " + (nt.min - s.streak) : "♾️"}</div><div class="s">${nt ? `${plural(nt.min - s.streak, "win")} to ${nt.name}` : "nothing above"}</div></div>
       <div class="stat"><div class="k">Banked</div><div class="v" style="color:var(--gold)">${moneyShort(s.banked)}</div><div class="s">safe from losses</div></div>
     </div>
     <div class="section-h"><h2>History</h2><span>Permanent · tap a bet to settle or edit</span></div>
@@ -1007,8 +1019,8 @@ function renderAwards() {
     <div class="skins">${SKINS.map(k => { const open = best >= k.need; return `<button class="skin ${state.skin === k.id ? "on" : ""} ${open ? "" : "locked"}" data-skin="${k.id}" data-open-skin="${open ? 1 : ""}" style="--sw:${open ? k.sw : "linear-gradient(135deg, #2a2d33, #16181c)"}"><div class="sw">${open ? "" : `<b>🔒</b>`}</div><div class="nm">${open ? (k.sym ? k.sym + " " : "") + k.name : `??? · ${k.need} wins`}</div></button>`; }).join("")}</div>
     <div class="section-h"><h2>Badges</h2><span>${got} of ${ACH.length}</span></div>
     <div class="ach-grid">${ACH.map(a => { const at = state.achievements[a.id]; return `<div class="glass ach ${at ? "got" : "locked"}"><div class="e">${a.e}</div><div class="n">${a.n}</div><div class="d">${a.d}</div>${at ? `<div class="d" style="color:var(--gold)">Unlocked ${day(at)}</div>` : ""}</div>`; }).join("")}</div>
-    <div class="section-h"><h2>Tier ladder</h2><span>by wins in a row</span></div>
-    <div class="glass card"><div class="ladder">${TIERS.map(tr => `<div class="${best >= tr.min ? "" : "no"}">${tierBadge(tr)}<span>${tr.min} wins${best >= tr.min ? " ✓" : ""}</span></div>`).join("")}</div></div>`;
+    <div class="section-h"><h2>Rank ladder</h2><span>by wins in a row</span></div>
+    <div class="glass card"><div class="ladder">${TIERS.map(tr => `<div class="${best >= tr.min ? "" : "no"}">${tierBadge(tr)}<span>${tr.level !== "II" && tr.level !== "III" ? `<em class="ladder-nick">${esc(tr.nick)}</em> · ` : ""}${tr.min} wins${best >= tr.min ? " ✓" : ""}</span></div>`).join("")}</div></div>`;
   document.querySelectorAll(".skin[data-skin]").forEach(el => el.onclick = () => {
     if (el.dataset.openSkin) { previewSkin = null; state.skin = el.dataset.skin; save(); render(); }
     else toast(`🔒 Unlocks at ${SKINS.find(k => k.id === el.dataset.skin).need} wins in a row. It's a surprise!`);
@@ -1706,10 +1718,10 @@ function crack(target) {
 function tierBurst(tier) {
   const lvl = tier.idx, durS = Math.min(4, 2 + lvl * .14);
   const cosmic = tier.badge === "cosmic";
-  if (lvl >= 4) fx(`<div class="screenflash" style="--tc:${tier.c2}"></div>`, 900);
-  fx(`<div class="tierburst ${cosmic ? "cosmic" : ""}" style="--tc:${tier.c2};--tdur:${durS}s"><div class="rays"></div><div class="sym">${tier.sym}</div><div class="lbl"><small>New tier · ${tier.min} wins</small>${tier.name}</div></div>`, durS * 1000 + 100);
-  if (lvl >= 4) confetti(cosmic ? ["#ffffff", "#ff5fd2", "#3ad6ff", tier.c1, tier.c2] : [tier.c1, tier.c2, "#ffffff"], Math.min(320, 60 + lvl * 18));
-  if (!reduced && lvl >= 7) { const app = $("#app"); app.classList.remove("shake"); void app.offsetWidth; app.classList.add("shake"); setTimeout(() => app.classList.remove("shake"), 600); }
+  if (tier.min >= 17) fx(`<div class="screenflash" style="--tc:${tier.c2}"></div>`, 900);
+  fx(`<div class="tierburst ${cosmic ? "cosmic" : ""}" style="--tc:${tier.c2};--tdur:${durS}s"><div class="rays"></div><div class="sym">${tier.sym}</div><div class="lbl"><small>New rank · ${tier.min} wins</small>${tier.name}<small class="tb-nick">“${tier.nick}”</small></div></div>`, durS * 1000 + 100);
+  if (tier.min >= 17) confetti(cosmic ? ["#ffffff", "#ff5fd2", "#3ad6ff", tier.c1, tier.c2] : [tier.c1, tier.c2, "#ffffff"], Math.min(320, 60 + lvl * 18));
+  if (!reduced && tier.min >= 47) { const app = $("#app"); app.classList.remove("shake"); void app.offsetWidth; app.classList.add("shake"); setTimeout(() => app.classList.remove("shake"), 600); }
 }
 function confetti(cols, count) {
   const cv = document.createElement("canvas"); cv.className = "confetti"; document.body.appendChild(cv);
@@ -1831,7 +1843,7 @@ function renderAuth(mode = "login", note = "") {
   const signup = mode === "signup";
   $("#view").innerHTML = `
     <div class="auth">
-      <div class="auth-logo">${ringSVG({ tier: TIERS[3], frac: .72, total: 23, streak: 17, reached: false })}<span>⚡</span></div>
+      <div class="auth-logo">${ringSVG({ tier: TIERS[13], frac: .72, total: 23, streak: 17, reached: false })}<span>⚡</span></div>
       <h1>Pipe Dream</h1>
       <p class="sub" style="text-align:center">The offshore crew's get-rich-quick scheme. Stack the wins, buy the last chopper off the rig. 🛢️🚁</p>
       <div class="glass card">
@@ -1909,7 +1921,7 @@ function hideSplash() {
 setTimeout(hideSplash, 9000);
 
 /* ---------- Signed in ---------- */
-function loading(msg) { signedOut(true); $("#view").innerHTML = `<div class="auth"><div class="auth-logo spin-slow">${ringSVG({ tier: TIERS[3], frac: .3, total: 23, streak: 0, reached: false })}</div><p class="sub" style="text-align:center">${msg}</p></div>`; }
+function loading(msg) { signedOut(true); $("#view").innerHTML = `<div class="auth"><div class="auth-logo spin-slow">${ringSVG({ tier: TIERS[13], frac: .3, total: 23, streak: 0, reached: false })}</div><p class="sub" style="text-align:center">${msg}</p></div>`; }
 async function startSignedIn() {
   if (starting) return; starting = true;
   try {
@@ -1993,7 +2005,7 @@ function renderProfile() {
     <div class="profile-hero">
       ${avatarHTML(132, { badge: true, edit: true })}
       <h1>${glowName(me.display_name)}</h1>
-      <div class="sub" style="margin:0">${tierBadge(b.tier, undefined, false)} ${b.streak ? `${plural(b.streak, "win")} in a row on ${esc(b.t.name)}` : "No live streak yet"}</div>
+      <div class="sub" style="margin:0">${tierBadge(b.tier, `${b.tier.name} · ${esc(b.tier.nick)}`, false)} ${b.streak ? `${plural(b.streak, "win")} in a row on ${esc(b.t.name)}` : "No live streak yet"}</div>
       <div class="sub" id="pWins" style="margin:4px 0 0"></div>
       <button class="btn sec" id="pShare" style="width:auto;margin-top:12px;padding-inline:20px">📤 Share my stats</button>
       <div class="err" id="avErr" style="margin-top:6px"></div>
@@ -2102,7 +2114,8 @@ function agoShort(ts) {
   const m = Math.max(0, Math.round((Date.now() - ts) / 60000));
   return m < 1 ? "just now" : m < 60 ? m + "m ago" : m < 1440 ? Math.round(m / 60) + "h ago" : Math.round(m / 1440) + "d ago";
 }
-const tierOf = p => TIERS[Math.min(p.tier_idx || 0, TIERS.length - 1)] || TIERS[0];
+// Worked out from the live streak, so the rank ladder never depends on the stored tier number.
+const tierOf = p => p.streak != null ? tierFor(p.streak) : TIERS[Math.min(p.tier_idx || 0, TIERS.length - 1)] || TIERS[0];
 const incomingCount = () => (friends || []).filter(f => f.status === "pending" && f.incoming).length;
 async function loadFriends(force) {
   if (!Cloud.user || localMode || (!force && Date.now() - friendsAt < 15000)) return;
@@ -2228,7 +2241,7 @@ function openFriend(p) {
   const sh = openSheet(`<div class="profile-hero" style="padding-top:6px">
       ${personAvatar(p.display_name, p.avatar_url, p.streak || 0, t, 112, { badge: true })}
       <h1 style="font-size:32px">${glowNameAs(p.display_name, t)}</h1>
-      <div class="sub" style="margin:0">${tierBadge(t, undefined, false)} ${p.streak ? `${plural(p.streak, "win")} in a row${p.streak_tracker ? ` on ${esc(p.streak_tracker)}` : ""}` : "No live streak right now"}</div>
+      <div class="sub" style="margin:0">${tierBadge(t, `${t.name} · ${esc(t.nick)}`, false)} ${p.streak ? `${plural(p.streak, "win")} in a row${p.streak_tracker ? ` on ${esc(p.streak_tracker)}` : ""}` : "No live streak right now"}</div>
     </div>
     ${p.best_streak !== undefined ? `<div class="kv" style="margin-top:14px">
       <div><div class="k">Live streak</div><div class="v">${p.streak || 0}</div></div>
@@ -2296,11 +2309,11 @@ function embersHTML(pct, v, place) {
 // Second, smaller bar: progress from this tier to the next one, so long trackers still move with every win.
 function tierBarHTML(p) {
   const s = p.streak || 0, i = TIERS.findIndex((t, k) => s >= t.min && !(TIERS[k + 1] && s >= TIERS[k + 1].min)), cur = TIERS[i], next = TIERS[i + 1];
-  if (!next) return `<span class="lbar tbar top" style="--b1:${cur.c1};--b2:${cur.c2}"><span class="lbar-cap"><span>${cur.sym} ${esc(cur.name)} · top tier</span></span></span>`;
+  if (!next) return `<span class="lbar tbar top" style="--b1:${cur.c1};--b2:${cur.c2}"><span class="lbar-cap"><span>${cur.sym} ${esc(cur.name)} · top rank</span></span></span>`;
   const n = next.min - cur.min, done = s - cur.min, pct = Math.round(done / n * 100), left = next.min - s;
   const tr = barTrackHTML(BAR_STYLE, pct, n, "", done);
   return `<span class="lbar tbar ${tr.v ? "v-" + tr.v : ""}" style="--b1:${next.c1};--b2:${next.c2};--n:${tr.n}" title="${plural(left, "win")} to ${esc(next.name)}">
-    <span class="lbar-cap"><span>Next tier: <em>${next.sym} ${esc(next.name)}</em></span></span>
+    <span class="lbar-cap"><span>Next rank: <em>${next.sym} ${esc(next.name)}</em></span></span>
     ${tr.html}</span>`;
 }
 function liveCardHTML(l, p) {
@@ -2824,7 +2837,7 @@ function renderConvoBody(keepTop) {
     if (m.kind === "event") { html += `<div class="convo-note">${esc(m.body)}</div>`; prevSender = null; continue; }
     const mine = m.sender === me, rx = Object.entries(m.reactions || {});
     // In a group, each run of messages from someone else starts with their name.
-    const who = group && !mine && m.sender !== prevSender ? `<div class="msender">${m.sender_name ? glowNameAs(m.sender_name, tierOf({ tier_idx: m.sender_tier })) : "Someone who left"}</div>` : "";
+    const who = group && !mine && m.sender !== prevSender ? `<div class="msender">${m.sender_name ? glowNameAs(m.sender_name, tierOf({ streak: m.sender_streak, tier_idx: m.sender_tier })) : "Someone who left"}</div>` : "";
     prevSender = m.sender;
     html += `<div class="msg ${mine ? "mine" : "theirs"}" data-msg="${m.id}">${who}
       <div class="bubble ${m.media_kind ? "has-" + m.media_kind : ""}">${m.media_kind ? mediaHTML(m) : ""}${m.bet ? betCardHTML(m.bet) : ""}${m.body ? `<div class="mtext">${esc(m.body)}</div>` : ""}
