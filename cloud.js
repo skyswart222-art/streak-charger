@@ -132,7 +132,7 @@ const friendRespond = (id, accept) => rpc("friend_respond", { other: id, accept 
 const friendRemove = id => rpc("friend_remove", { other: id });
 const leaderboard = (scope, metric) => rpc("leaderboard", { scope, metric, lim: 50 });
 // Regular trackers added up per person, ranked by profit as a share of their starting balances.
-const regularBoard = scope => rpc("regular_board", { scope, by: "pct", lim: 50 });
+const regularBoard = (scope, by = "pct") => rpc("regular_board", { scope, by, lim: 50 });
 // A friend's bets on trackers they show to others, plus their live progress. null if you aren't friends.
 const friendBets = other => rpc("friend_bets", { other, lim: 60 });
 

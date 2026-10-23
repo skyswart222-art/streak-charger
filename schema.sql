@@ -1534,7 +1534,9 @@ language sql stable security definer set search_path = public as $$
       from tr group by user_id
   ), scored as (
     select p.id, p.display_name, p.avatar_url, p.streak, p.tier_idx, a.start, a.profit, a.staked, a.wins, a.losses, a.pending, a.in_play, a.trackers,
-           case when by = 'profit' then a.profit else a.profit / nullif(a.start, 0) end as score
+           case when by = 'profit' then a.profit
+                when by = 'winrate' then a.wins::double precision / nullif(a.wins + a.losses, 0)
+                else a.profit / nullif(a.start, 0) end as score
       from agg a join pool p on p.id = a.user_id
      where scope <> 'everyone' or a.staked > 0 or p.id = auth.uid()
   ), ranked as (

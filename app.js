@@ -1630,7 +1630,7 @@ function regBoardRow(p) {
     <button class="fwho" data-fopen="${p.id}">${personAvatar(p.display_name, p.avatar_url, p.streak, t, 42, { badge: true })}
       <span class="fname"><span class="lb-namerow"><b>${glowNameAs(p.display_name, t)}${p.is_me ? ` <em class="lb-you">You</em>` : ""}</b><span class="lb-bal" title="Balance across regular trackers"><b>${moneyTiny(Number(p.start) + profit)}</b></span></span>
         <small>${tie ? `<em class="lb-tie">⚔️ Tied</em>` : ""}<span class="${profit >= 0 ? "win" : "loss"}">${signed(profit)}</span> · ${p.wins}W ${p.losses}L${p.pending ? ` · ⏳ ${p.pending} in play` : ""}</small></span></button>
-    <span class="lb-score ${profit >= 0 ? "win" : "loss"}">${pctSigned(Number(p.score) || 0)}</span></div>`;
+    <span class="lb-score ${boardMetric === "rwin" ? "" : profit >= 0 ? "win" : "loss"}">${boardMetric === "rwin" ? (p.wins + p.losses ? Math.round(Number(p.score) * 100) + "%" : "–") : boardMetric === "rprofit" ? signed(profit, moneyShort) : pctSigned(Number(p.score) || 0)}</span></div>`;
 }
 
 document.addEventListener("click", e => {
@@ -2240,9 +2240,9 @@ function renderSetupNeeded() {
 }
 
 /* ---------- skyversion and update history (newest first; build.py fills these from VERSION and changelog.txt) ---------- */
-const SKY_LOG = [["1.52", "Oct 23", "Compounding and regular betting kept fully separate: trackers page, feed, friend bets, profile and bet sharing"], ["1.51", "Oct 23", "Regular betting trackers: a ledger with stakes, stats and a Regular leaderboard"], ["1.50", "Oct 23", "Profile button at the top right only shows on Home"], ["1.49", "Oct 23", "Version number on the splash and profile, plus this update history"], ["1.48", "Oct 23", "Hold the mic to talk and let go to send, in every chat"], ["1.47", "Oct 23", "Slower, more realistic chopper take-off with a spark trail"], ["1.46", "Oct 23", "The chopper flies away when the splash ring fills"], ["1.45", "Oct 23", "Ranked ladder: Rookie, Bronze to Champion in three levels, then Legend"], ["1.44", "Oct 23", "Tied players shove each other on the leaderboard"], ["1.43", "Oct 23", "Launch splash runs five seconds"], ["1.42", "Oct 23", "Launch splash stays up a little longer"], ["1.41", "Oct 23", "Launch splash screen with the app logo"], ["1.40", "Oct 23", "Top-three embers, risky bet tags and New joiners in Friends"], ["1.39", "Oct 23", "Calmer leaderboard bars and first-place embers"], ["1.38", "Oct 23", "Block progress bars and a next-tier bar on the leaderboard"], ["1.37", "Oct 23", "Leaderboard win sparks, pinned group chats and a welcome note"], ["1.36", "Oct 23", "Leaderboard balance pill"], ["1.35", "Oct 22", "Removed the \"edited\" tag from tracker targets"], ["1.34", "Oct 22", "Verified wins with a gold plaque, and flagging suspicious slips"], ["1.33", "Oct 22", "Tier-coloured sparks that build over your last 3 wins"], ["1.32", "Oct 22", "Sparks come off the tier progress ring"], ["1.31", "Oct 22", "Sparks build up toward a tier-up"], ["1.30", "Oct 22", "Grinder sparks off the arc star"], ["1.29", "Oct 22", "Delete pending bets and trackers"], ["1.28", "Oct 21", "Same-size leaderboard cards with gold, silver and bronze top three"], ["1.27", "Oct 21", "Animated leaderboard with charging bars and win/loss bursts"], ["1.26", "Oct 21", "Pop-up sheets close with a button or a pull-down"], ["1.25", "Oct 21", "Live progress bars for friends, and tap a friend to see their bets"], ["1.24", "Oct 21", "See when someone is typing in chats and groups"], ["1.23", "Oct 21", "New app icon: a rig at sunset inside the streak arc"], ["1.22", "Oct 21", "Rig-worker streak tiers"], ["1.21", "Oct 21", "Show or hide each tracker from friends and the community"], ["1.20", "Oct 21", "Bet slip screenshots are kept with each logged bet"], ["1.19", "Oct 21", "Top row sits below the iPhone status bar, and New group always shows"], ["1.18", "Oct 21", "Removed the background glow; solid chat header"], ["1.17", "Oct 21", "No more haze above the top bar when pulling down"], ["1.16", "Oct 21", "Clean top bar instead of a hazy fade"], ["1.15", "Oct 21", "Bottom bar stays at the bottom on short pages"], ["1.14", "Oct 21", "Undid the bottom bar gap fix"], ["1.13", "Oct 21", "Closed the gap under the bottom bar"], ["1.12", "Oct 21", "Hints tab in Stats"], ["1.11", "Oct 21", "iPhone no longer zooms in and cuts off the screen edges"], ["1.10", "Oct 21", "Top bar no longer covers screens; locked themes stay a surprise"], ["1.9", "Oct 21", "Renamed the app to Pipe Dream"], ["1.8", "Oct 21", "Bet slip reader is back, free and on the phone"], ["1.7", "Oct 21", "App icon and Home Screen settings"], ["1.6", "Oct 21", "Challenges"], ["1.5", "Oct 21", "Group chats"], ["1.4", "Oct 21", "Friends feed"], ["1.3", "Oct 21", "Chat between friends"], ["1.2", "Oct 21", "Leaderboard"], ["1.1", "Oct 21", "Friends, with streaks worked out by the database"], ["1.0", "Oct 19", "First version: accounts, sync, profiles and five tabs"]];
+const SKY_LOG = [["1.53", "Oct 23", "Leaderboard has Compounding and Regular tabs, each with its own boards"], ["1.52", "Oct 23", "Compounding and regular betting kept fully separate: trackers page, feed, friend bets, profile and bet sharing"], ["1.51", "Oct 23", "Regular betting trackers: a ledger with stakes, stats and a Regular leaderboard"], ["1.50", "Oct 23", "Profile button at the top right only shows on Home"], ["1.49", "Oct 23", "Version number on the splash and profile, plus this update history"], ["1.48", "Oct 23", "Hold the mic to talk and let go to send, in every chat"], ["1.47", "Oct 23", "Slower, more realistic chopper take-off with a spark trail"], ["1.46", "Oct 23", "The chopper flies away when the splash ring fills"], ["1.45", "Oct 23", "Ranked ladder: Rookie, Bronze to Champion in three levels, then Legend"], ["1.44", "Oct 23", "Tied players shove each other on the leaderboard"], ["1.43", "Oct 23", "Launch splash runs five seconds"], ["1.42", "Oct 23", "Launch splash stays up a little longer"], ["1.41", "Oct 23", "Launch splash screen with the app logo"], ["1.40", "Oct 23", "Top-three embers, risky bet tags and New joiners in Friends"], ["1.39", "Oct 23", "Calmer leaderboard bars and first-place embers"], ["1.38", "Oct 23", "Block progress bars and a next-tier bar on the leaderboard"], ["1.37", "Oct 23", "Leaderboard win sparks, pinned group chats and a welcome note"], ["1.36", "Oct 23", "Leaderboard balance pill"], ["1.35", "Oct 22", "Removed the \"edited\" tag from tracker targets"], ["1.34", "Oct 22", "Verified wins with a gold plaque, and flagging suspicious slips"], ["1.33", "Oct 22", "Tier-coloured sparks that build over your last 3 wins"], ["1.32", "Oct 22", "Sparks come off the tier progress ring"], ["1.31", "Oct 22", "Sparks build up toward a tier-up"], ["1.30", "Oct 22", "Grinder sparks off the arc star"], ["1.29", "Oct 22", "Delete pending bets and trackers"], ["1.28", "Oct 21", "Same-size leaderboard cards with gold, silver and bronze top three"], ["1.27", "Oct 21", "Animated leaderboard with charging bars and win/loss bursts"], ["1.26", "Oct 21", "Pop-up sheets close with a button or a pull-down"], ["1.25", "Oct 21", "Live progress bars for friends, and tap a friend to see their bets"], ["1.24", "Oct 21", "See when someone is typing in chats and groups"], ["1.23", "Oct 21", "New app icon: a rig at sunset inside the streak arc"], ["1.22", "Oct 21", "Rig-worker streak tiers"], ["1.21", "Oct 21", "Show or hide each tracker from friends and the community"], ["1.20", "Oct 21", "Bet slip screenshots are kept with each logged bet"], ["1.19", "Oct 21", "Top row sits below the iPhone status bar, and New group always shows"], ["1.18", "Oct 21", "Removed the background glow; solid chat header"], ["1.17", "Oct 21", "No more haze above the top bar when pulling down"], ["1.16", "Oct 21", "Clean top bar instead of a hazy fade"], ["1.15", "Oct 21", "Bottom bar stays at the bottom on short pages"], ["1.14", "Oct 21", "Undid the bottom bar gap fix"], ["1.13", "Oct 21", "Closed the gap under the bottom bar"], ["1.12", "Oct 21", "Hints tab in Stats"], ["1.11", "Oct 21", "iPhone no longer zooms in and cuts off the screen edges"], ["1.10", "Oct 21", "Top bar no longer covers screens; locked themes stay a surprise"], ["1.9", "Oct 21", "Renamed the app to Pipe Dream"], ["1.8", "Oct 21", "Bet slip reader is back, free and on the phone"], ["1.7", "Oct 21", "App icon and Home Screen settings"], ["1.6", "Oct 21", "Challenges"], ["1.5", "Oct 21", "Group chats"], ["1.4", "Oct 21", "Friends feed"], ["1.3", "Oct 21", "Chat between friends"], ["1.2", "Oct 21", "Leaderboard"], ["1.1", "Oct 21", "Friends, with streaks worked out by the database"], ["1.0", "Oct 19", "First version: accounts, sync, profiles and five tabs"]];
 function updateHistoryHTML() {
-  return `<div class="appver">skyversion 1.52</div>
+  return `<div class="appver">skyversion 1.53</div>
     <details class="glass card uphist"><summary>Update history <small>${plural(SKY_LOG.length, "version")}</small></summary>
       <ol>${SKY_LOG.map(([v, d, t], i) => `<li${i ? "" : ' class="now"'}><b>${esc(v)}</b><span>${esc(t)}</span><small>${esc(d)}${i ? "" : " · you're on this"}</small></li>`).join("")}</ol></details>`;
 }
@@ -2721,14 +2721,17 @@ async function loadFriendBets(sh, p) {
 /* ---------- Leaderboard ----------
    Ranked by the database from everyone's logged bets. Friends shows you and your friends;
    Everyone shows the top 50 who have something on the board, plus your own spot. */
-const BOARD_METRICS = [["streak", "Live streak"], ["best", "Best streak"], ["banked", "Banked"], ["regular", "Regular"]];
+const BOARD_SETS = { compound: [["streak", "Live streak"], ["best", "Best streak"], ["banked", "Banked"]], regular: [["rpct", "Profit %"], ["rprofit", "Profit $"], ["rwin", "Win rate"]] };
+const REG_BY = { rpct: "pct", rprofit: "profit", rwin: "winrate" };
+const isRegBoard = (m = boardMetric) => m in REG_BY;
+let boardKind = "compound", boardLast = { compound: "streak", regular: "rpct" };
 let boards = {}, boardScope = "friends", boardMetric = "streak", boardTies = new Map();
 const boardKey = () => boardScope + ":" + boardMetric;
 async function loadBoard(force) {
   const k = boardKey(), b = boards[k];
   if (!Cloud.user || localMode || (!force && b && (b.loading || Date.now() - b.at < 15000))) return;
   boards[k] = { ...(b || {}), loading: true, at: Date.now() };
-  try { boards[k] = { rows: await (boardMetric === "regular" ? Cloud.regularBoard(boardScope) : Cloud.leaderboard(boardScope, boardMetric)), at: Date.now(), got: Date.now() }; }
+  try { boards[k] = { rows: await (isRegBoard() ? Cloud.regularBoard(boardScope, REG_BY[boardMetric]) : Cloud.leaderboard(boardScope, boardMetric)), at: Date.now(), got: Date.now() }; }
   catch (x) { boards[k] = { ...(b || {}), err: Cloud.nice(x), at: Date.now() }; }
   if (state && !scrim && state.page === "leaderboard" && boardKey() === k) renderLeaders();
 }
@@ -2758,15 +2761,16 @@ function renderLeaders() {
   $("#view").innerHTML = `${leadNav()}
     <div class="head" style="padding-top:18px"><div><div class="eyebrow">${boardScope === "friends" ? "You and your friends" : "Everyone on Pipe Dream"}</div><h1>Leaderboard</h1></div></div>
     <div class="seg" style="margin-bottom:10px">${[["friends", "Friends"], ["everyone", "Everyone"]].map(([k, n]) => `<button data-bscope="${k}" class="${boardScope === k ? "on" : ""}">${n}</button>`).join("")}</div>
-    <div class="lb-metrics">${BOARD_METRICS.map(([k, n]) => `<button data-bmetric="${k}" class="${boardMetric === k ? "on" : ""}">${n}</button>`).join("")}</div>
+    <div class="seg kindnav lb-kind">${KIND_NAV.map(([k, n]) => `<button data-bkind="${k}" class="${boardKind === k ? "on" : ""}">${n}</button>`).join("")}</div>
+    <div class="lb-metrics">${BOARD_SETS[boardKind].map(([k, n]) => `<button data-bmetric="${k}" class="${boardMetric === k ? "on" : ""}">${n}</button>`).join("")}</div>
     ${b.err ? `<div class="glass card"><div class="err" style="margin:0">${esc(b.err)}</div></div>` : ""}
     ${!b.rows && !b.err ? `<div class="glass card"><div class="cap" style="margin:0">Loading the leaderboard…</div></div>` : ""}
     ${top.length ? `<div class="lb-list">${top.map(boardRow).join("")}</div>` : ""}
     ${outside ? `<div class="section-h"><h2>Your spot</h2></div><div class="lb-list">${boardRow(meRow)}</div>` : ""}
     ${b.rows && lonely ? `<div class="glass card fempty"><div class="soon-ic">🏆</div><p>It's just you so far. Add friends to see how you stack up, or switch to Everyone.</p><button class="btn sec" data-nav="friends">Find friends</button></div>` : ""}
-    ${b.rows && !rows.length ? `<div class="glass card fempty"><div class="soon-ic">🏆</div><p>${boardMetric === "regular" ? "Nobody has a regular tracker here yet. Start one from Home with the Regular switch." : "Nobody's on this board yet."}</p></div>` : ""}
-    ${b.rows ? `<div class="note" data-boardview style="margin:12px 0 0;text-align:center">${boardMetric === "regular" ? "Regular trackers added up, ranked by profit on the starting balance" : `Worked out from logged bets${boardMetric === "streak" ? ". A loss resets a live streak" : ""}`}.</div>` : ""}`;
-  if (b.rows && boardMetric !== "regular") animateBoard(rows, fresh, b.got || 0);
+    ${b.rows && !rows.length ? `<div class="glass card fempty"><div class="soon-ic">🏆</div><p>${isRegBoard() ? "Nobody has a regular tracker here yet. Start one from Home with the Regular switch." : "Nobody's on this board yet."}</p></div>` : ""}
+    ${b.rows ? `<div class="note" data-boardview style="margin:12px 0 0;text-align:center">${isRegBoard() ? `Regular trackers added up, ranked by ${boardMetric === "rwin" ? "the share of settled bets won" : boardMetric === "rprofit" ? "total profit in dollars" : "profit on the starting balance"}` : `Worked out from logged bets${boardMetric === "streak" ? ". A loss resets a live streak" : ""}`}.</div>` : ""}`;
+  if (b.rows && !isRegBoard()) animateBoard(rows, fresh, b.got || 0);
 }
 /* Board animation. Bars charge up from empty when you open the board, and slide from where they were on a refresh.
    Wins, losses and new bets since you last looked get a burst on that person. */
@@ -2858,7 +2862,7 @@ function riskBadgeHTML(r, odds) {
   return `<span class="rk-tag" title="${r.name} bet">${r.sym} ${r.name}<small>@ ${odds2(odds)}</small></span>`;
 }
 function boardRow(p) {
-  if (boardMetric === "regular") return regBoardRow(p);
+  if (isRegBoard()) return regBoardRow(p);
   const t = tierOf(p);
   const sub = boardMetric === "streak" ? (p.streak ? `${t.sym} ${t.name}${p.streak_tracker ? ` · on ${esc(p.streak_tracker)}` : ""}` : `No live streak · best ${p.best_streak || 0}`)
     : boardMetric === "best" ? `Live now: ${t.sym} ${p.streak || 0}` : `${t.sym} ${p.streak || 0} live · best ${p.best_streak || 0}`;
@@ -2875,7 +2879,9 @@ document.addEventListener("click", e => {
   if (!state || !Cloud.user) return;
   const s = e.target.closest("[data-bscope]"), m = e.target.closest("[data-bmetric]");
   if (s) { boardScope = s.dataset.bscope; renderLeaders(); }
-  if (m) { boardMetric = m.dataset.bmetric; renderLeaders(); }
+  if (m) { boardMetric = boardLast[boardKind] = m.dataset.bmetric; renderLeaders(); }
+  const k = e.target.closest("[data-bkind]");
+  if (k) { boardKind = k.dataset.bkind; boardMetric = boardLast[boardKind]; renderLeaders(); }
 });
 
 /* ---------- Chat ----------
