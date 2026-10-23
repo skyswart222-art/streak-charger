@@ -2350,7 +2350,7 @@ async function loadFriendBets(sh, p) {
    Ranked by the database from everyone's logged bets. Friends shows you and your friends;
    Everyone shows the top 50 who have something on the board, plus your own spot. */
 const BOARD_METRICS = [["streak", "Live streak"], ["best", "Best streak"], ["banked", "Banked"]];
-let boards = {}, boardScope = "friends", boardMetric = "streak";
+let boards = {}, boardScope = "friends", boardMetric = "streak", boardTies = new Map();
 const boardKey = () => boardScope + ":" + boardMetric;
 async function loadBoard(force) {
   const k = boardKey(), b = boards[k];
@@ -2379,6 +2379,10 @@ function renderLeaders() {
   const top = rows.filter(r => !r.is_me || r.rank <= 50);
   const outside = meRow && !top.includes(meRow);
   const lonely = boardScope === "friends" && rows.length === 1;
+  // Players level on the same score (above zero) jostle each other; alternate ones shove the other way.
+  boardTies = new Map(); const seen = {};
+  rows.forEach(r => { if (r.score > 0) seen[r.rank] = (seen[r.rank] || 0) + 1; });
+  rows.forEach(r => { if (seen[r.rank] > 1) { const i = [...boardTies.values()].filter(x => x.rank === r.rank).length; boardTies.set(r.id, { rank: r.rank, i }); } });
   $("#view").innerHTML = `${leadNav()}
     <div class="head" style="padding-top:18px"><div><div class="eyebrow">${boardScope === "friends" ? "You and your friends" : "Everyone on Pipe Dream"}</div><h1>Leaderboard</h1></div></div>
     <div class="seg" style="margin-bottom:10px">${[["friends", "Friends"], ["everyone", "Everyone"]].map(([k, n]) => `<button data-bscope="${k}" class="${boardScope === k ? "on" : ""}">${n}</button>`).join("")}</div>
@@ -2486,11 +2490,12 @@ function boardRow(p) {
   const sub = boardMetric === "streak" ? (p.streak ? `${t.sym} ${t.name}${p.streak_tracker ? ` · on ${esc(p.streak_tracker)}` : ""}` : `No live streak · best ${p.best_streak || 0}`)
     : boardMetric === "best" ? `Live now: ${t.sym} ${p.streak || 0}` : `${t.sym} ${p.streak || 0} live · best ${p.best_streak || 0}`;
   const place = p.rank <= 3 && p.score > 0 ? p.rank : 0;
-  const rk = riskBand(p.live);
-  return `<div class="frow lb-row ${place ? "place" + place : ""} ${p.is_me ? "me" : ""} ${rk ? `risk rk${rk.lvl}` : ""}" data-fid="${p.id}"${rk ? ` style="--rk:${rk.c}"` : ""}>${rk ? riskBadgeHTML(rk, p.live.odds) : ""}
+  const rk = riskBand(p.live), tie = boardTies.get(p.id);
+  const style = [rk ? `--rk:${rk.c}` : "", tie ? `--td:${tie.i % 2 ? -1 : 1}` : ""].filter(Boolean).join(";");
+  return `<div class="frow lb-row ${place ? "place" + place : ""} ${p.is_me ? "me" : ""} ${rk ? `risk rk${rk.lvl}` : ""} ${tie ? "tied" : ""}" data-fid="${p.id}"${style ? ` style="${style}"` : ""}>${rk ? riskBadgeHTML(rk, p.live.odds) : ""}
     <span class="lb-rank">${place ? MEDALS[place - 1] : p.rank}</span>
     <button class="fwho" data-fopen="${p.id}">${personAvatar(p.display_name, p.avatar_url, p.streak, t, 42, { badge: true })}
-      <span class="fname"><span class="lb-namerow"><b>${glowNameAs(p.display_name, t)}${p.is_me ? ` <em class="lb-you">You</em>` : ""}</b>${p.live ? `<span class="lb-bal" title="Tracker balance and target"><b>${moneyTiny(p.live.balance)}</b><i>→</i>${moneyTiny(p.live.target)}</span>` : ""}</span><small>${sub}</small>${liveBarHTML(p.live, p, false, place, true)}${p.live ? tierBarHTML(p) : ""}</span></button>
+      <span class="fname"><span class="lb-namerow"><b>${glowNameAs(p.display_name, t)}${p.is_me ? ` <em class="lb-you">You</em>` : ""}</b>${p.live ? `<span class="lb-bal" title="Tracker balance and target"><b>${moneyTiny(p.live.balance)}</b><i>→</i>${moneyTiny(p.live.target)}</span>` : ""}</span><small>${tie ? `<em class="lb-tie" title="Level with someone on the same score">⚔️ Tied</em>` : ""}${sub}</small>${liveBarHTML(p.live, p, false, place, true)}${p.live ? tierBarHTML(p) : ""}</span></button>
     <span class="lb-score">${boardValue(p)}</span></div>`;
 }
 document.addEventListener("click", e => {
