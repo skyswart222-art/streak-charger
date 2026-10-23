@@ -1043,6 +1043,12 @@ canvas.arc-sparks { position: fixed; inset: 0; width: 100%; height: 100%; z-inde
 }
 :root[data-skin="light"] .lb-tie { color: #a3470c; }
 
+/* Ranked ladder: drawn rank badges sit inline with text like an emoji */
+.rkic { display: inline-block; width: 1.2em; height: 1.2em; vertical-align: -.24em; filter: drop-shadow(0 1px 1.5px rgba(0,0,0,.35)); }
+.tierburst .sym .rkic { width: 1em; height: 1em; vertical-align: 0; filter: drop-shadow(0 4px 18px var(--tc)); }
+.avatar img.rkic, img.rkic { width: 1.2em; height: 1.2em; border-radius: 0; object-fit: contain; display: inline-block; }
+.tierburst .sym img.rkic { width: 1em; height: 1em; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
   .stamp, .x-mark, .glass-fx .hg, .glass-fx .rk, .tierburst { animation: fadeQuick 1.2s forwards !important; }
