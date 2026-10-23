@@ -2225,13 +2225,19 @@ function liveBarHTML(l, p, mini, place, noBal) {
   const [c1, c2] = PLACE_BAR[place] || ["#7dffb0", "#22c3ff"];
   const n = Math.max(1, (l.streak || 0) + (l.to_go || 0)), tr = barTrackHTML(mini ? "" : BAR_STYLE, livePct(l), n, p.id, l.streak || 0);
   return `<span class="lbar ${mini ? "mini" : ""} ${tr.v ? "v-" + tr.v : ""} ${l.pending ? "live" : ""}" style="--b1:${c1};--b2:${c2};--n:${tr.n}" title="${livePct(l)}% of the way to ${moneyShort(l.target)}">
-    ${tr.html}${place === 1 && !mini ? embersHTML(tr.pct, tr.v) : ""}
+    ${tr.html}${place >= 1 && place <= 3 && !mini ? embersHTML(tr.pct, tr.v, place) : ""}
     ${mini ? "" : `<span class="lbar-cap">${l.pending ? `<em>⏳ Bet in play</em>` : noBal ? "<span></span>" : `<span>${moneyShort(l.balance)} → ${moneyShort(l.target)}</span>`}<span>${liveGoal(l)}</span></span>`}</span>`;
 }
-// First place only: a few faint embers drifting off the end of the bar.
-const EMBERS = [[-10, -14, 0], [6, -18, .7], [-4, -11, 1.5], [12, -9, 2.2], [-14, -6, 2.9], [3, -16, 3.6]];
-function embersHTML(pct, v) {
-  return `<span class="lbar-embers" style="left:calc(${Math.max(pct, 3)}% - ${v === "seg" ? 4 : 1}px)" aria-hidden="true">${EMBERS.map(([x, y, d]) => `<b style="--x:${x}px;--y:${y}px;--d:${d}s"></b>`).join("")}</span>`;
+// Top three only: embers drifting off the end of the bar, strongest for first place.
+const EMBER_LEVEL = { 1: { n: 16, rise: 26, size: 3 }, 2: { n: 10, rise: 21, size: 2.5 }, 3: { n: 6, rise: 16, size: 2 } };
+function embersHTML(pct, v, place) {
+  const L = EMBER_LEVEL[place], dur = 4.2;
+  const bits = Array.from({ length: L.n }, (_, k) => {
+    // Spread evenly in time, fanned up and out with a fixed jitter so rows don't redraw differently.
+    const j = Math.sin(k * 12.9898 + place * 78.233) * 43758.5453 % 1, x = Math.round(j * L.rise * .7), y = -Math.round(L.rise * (.45 + Math.abs(j) * .55));
+    return `<b style="--x:${x}px;--y:${y}px;--d:${(k * dur / L.n).toFixed(2)}s"></b>`;
+  }).join("");
+  return `<span class="lbar-embers p${place}" style="left:calc(${Math.max(pct, 3)}% - ${v === "seg" ? 4 : 1}px);--es:${L.size}px" aria-hidden="true">${bits}</span>`;
 }
 // Second, smaller bar: progress from this tier to the next one, so long trackers still move with every win.
 function tierBarHTML(p) {
@@ -2412,12 +2418,25 @@ function boxSparks(el, t) {
   };
   requestAnimationFrame(frame);
 }
+// A running bet's risk, in three bands: semi risky, risky and super risky.
+const RISK_BANDS = [{ min: 1.2, lvl: 1, name: "Semi risky", short: "Semi", c: "#ffd23f", sym: "🟡" }, { min: 1.6, lvl: 2, name: "Risky", short: "Risky", c: "#ff8a3c", sym: "🟠" }, { min: 2, lvl: 3, name: "Super risky", short: "Super", c: "#ff2a6d", sym: "💀" }];
+const RISK_STYLE = (() => { try { return localStorage.getItem("pd.riskStyle") || "tag"; } catch (x) { return "tag"; } })();
+function riskBand(l) {
+  if (!l || !l.pending || !(l.odds >= RISK_BANDS[0].min)) return null;
+  let r = null; RISK_BANDS.forEach(b => { if (l.odds >= b.min) r = b; }); return r;
+}
+function riskBadgeHTML(r, odds) {
+  if (RISK_STYLE === "ribbon") return `<span class="rk-ribbon" title="${r.name} bet @ ${odds2(odds)}"><span>${r.short}</span></span>`;
+  if (RISK_STYLE === "edge") return `<span class="rk-orb" title="${r.name} bet @ ${odds2(odds)}">${r.sym}<small>@${odds2(odds)}</small></span>`;
+  return `<span class="rk-tag" title="${r.name} bet">${r.sym} ${r.name}<small>@ ${odds2(odds)}</small></span>`;
+}
 function boardRow(p) {
   const t = tierOf(p);
   const sub = boardMetric === "streak" ? (p.streak ? `${t.sym} ${t.name}${p.streak_tracker ? ` · on ${esc(p.streak_tracker)}` : ""}` : `No live streak · best ${p.best_streak || 0}`)
     : boardMetric === "best" ? `Live now: ${t.sym} ${p.streak || 0}` : `${t.sym} ${p.streak || 0} live · best ${p.best_streak || 0}`;
   const place = p.rank <= 3 && p.score > 0 ? p.rank : 0;
-  return `<div class="frow lb-row ${place ? "place" + place : ""} ${p.is_me ? "me" : ""}" data-fid="${p.id}">
+  const rk = riskBand(p.live);
+  return `<div class="frow lb-row ${place ? "place" + place : ""} ${p.is_me ? "me" : ""} ${rk ? `risk rs-${RISK_STYLE} rk${rk.lvl}` : ""}" data-fid="${p.id}"${rk ? ` style="--rk:${rk.c}"` : ""}>${rk ? riskBadgeHTML(rk, p.live.odds) : ""}
     <span class="lb-rank">${place ? MEDALS[place - 1] : p.rank}</span>
     <button class="fwho" data-fopen="${p.id}">${personAvatar(p.display_name, p.avatar_url, p.streak, t, 42, { badge: true })}
       <span class="fname"><span class="lb-namerow"><b>${glowNameAs(p.display_name, t)}${p.is_me ? ` <em class="lb-you">You</em>` : ""}</b>${p.live ? `<span class="lb-bal" title="Tracker balance and target"><b>${moneyTiny(p.live.balance)}</b><i>→</i>${moneyTiny(p.live.target)}</span>` : ""}</span><small>${sub}</small>${liveBarHTML(p.live, p, false, place, true)}${p.live ? tierBarHTML(p) : ""}</span></button>
