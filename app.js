@@ -568,7 +568,7 @@ function renderHome(anim) {
     <div class="list">${historyHTML(t, s)}</div>`;
   const ring = $("#ring");
   startFx(ring, shown, s.reached);
-  loadMyFlags();
+  loadMyFlags(); maybeWelcome();
   startSparks(ring, s.streak > 0 && !t.paused, nt && !s.reached ? Math.max(0, 4 - (nt.min - s.streak)) : 0, s.reached ? GOLD : nt || shown, s.reached ? GOLD : shown);
   $("#optBtn").onclick = () => openOptions(t);
   document.querySelectorAll("[data-bet]").forEach(el => el.onclick = () => openBet(t, el.dataset.bet));
@@ -1095,6 +1095,32 @@ function sparkWin(big, delay) {
   const loop = sparkLoop;
   loop.hold = true;
   setTimeout(() => { if (sparkLoop === loop) loop.explode(big); }, delay);
+}
+
+/* ---------- Welcome note: shown once, the first time someone opens the app ---------- */
+const WELCOME_KEY = "pd.welcomed";
+let welcomeTimer = 0;
+function maybeWelcome() {
+  try { if (localStorage.getItem(WELCOME_KEY)) return; } catch (x) { return; }
+  clearTimeout(welcomeTimer);
+  // Wait a beat so the home screen settles, and never cover another open sheet.
+  welcomeTimer = setTimeout(() => {
+    if (scrim || state.page !== "home" || document.querySelector(".auth, #aGo")) return;
+    const sh = openSheet(`<div class="welcome">
+      <div class="eyebrow">Welcome to Pipe Dream</div>
+      <h2>Bet smarter, not bigger.</h2>
+      <p class="welcome-lead">Pipe Dream is a plan for steady, patient betting toward a target, built on the power of compounding.</p>
+      <ul>
+        <li><b>One bet at a time.</b> Each bet uses your whole balance, so every win rolls straight into the next one.</li>
+        <li><b>Low odds, long game.</b> Small, likely wins stacked one after another grow your bankroll faster than you'd expect.</li>
+        <li><b>Set a target and follow the plan.</b> Your tracker shows how many wins you need and charges up as your streak grows.</li>
+      </ul>
+      <p class="welcome-small">Bet responsibly. Only ever play with money you can afford to lose.</p>
+      <button class="btn" data-welcome-go>Let's go</button>
+    </div>`, "welcome-sheet");
+    scrim.addEventListener("closing", () => { try { localStorage.setItem(WELCOME_KEY, "1"); } catch (x) {} });
+    sh.querySelector("[data-welcome-go]").onclick = closeSheet;
+  }, 700);
 }
 
 /* ---------- Verified wins and flagged slips ----------
