@@ -2210,12 +2210,31 @@ const livePct = l => Math.max(0, Math.min(100, Math.round((l.frac || 0) * 100)))
 const liveGoal = l => l.to_go === 0 ? "Target hit 🎯" : l.to_go == null ? "" : `${plural(l.to_go, "win")} to go`;
 // Gold, silver and bronze for the top three; everyone else charges in the app's colours.
 const PLACE_BAR = { 1: ["#ffe27a", "#f5a300"], 2: ["#f4f7fb", "#9aa6b5"], 3: ["#ffc08a", "#b8662e"] };
+// Leaderboard bars are drawn as one block per win (Sky picked "Blocks").
+const BAR_STYLE = "seg";
+// One bar track in the chosen style. Blocks fall back to a smooth bar when there are too many wins to draw.
+function barTrackHTML(v, pct, n, lid) {
+  // Too many wins to draw one block or dot each: fall back to a smooth tube with no ticks.
+  if (n > 20) { if (v === "seg") v = "tube"; n = 1; }
+  return { v, n, html: `<span class="lbar-track"><i style="width:${Math.max(pct, 3)}%" data-to="${Math.max(pct, 3)}"${lid ? ` data-lid="${lid}"` : ""}><b class="lbar-spark"></b></i></span>` };
+}
 function liveBarHTML(l, p, mini, place, noBal) {
   if (!l) return "";
   const [c1, c2] = PLACE_BAR[place] || ["#7dffb0", "#22c3ff"];
-  return `<span class="lbar ${mini ? "mini" : ""} ${l.pending ? "live" : ""}" style="--b1:${c1};--b2:${c2}" title="${livePct(l)}% of the way to ${moneyShort(l.target)}">
-    <span class="lbar-track"><i style="width:${Math.max(livePct(l), 3)}%" data-to="${Math.max(livePct(l), 3)}" data-lid="${p.id}"><b class="lbar-spark"></b></i></span>
+  const n = Math.max(1, (l.streak || 0) + (l.to_go || 0)), tr = barTrackHTML(mini ? "" : BAR_STYLE, livePct(l), n, p.id);
+  return `<span class="lbar ${mini ? "mini" : ""} ${tr.v ? "v-" + tr.v : ""} ${l.pending ? "live" : ""}" style="--b1:${c1};--b2:${c2};--n:${tr.n}" title="${livePct(l)}% of the way to ${moneyShort(l.target)}">
+    ${tr.html}
     ${mini ? "" : `<span class="lbar-cap">${l.pending ? `<em>⏳ Bet in play</em>` : noBal ? "<span></span>" : `<span>${moneyShort(l.balance)} → ${moneyShort(l.target)}</span>`}<span>${liveGoal(l)}</span></span>`}</span>`;
+}
+// Second, smaller bar: progress from this tier to the next one, so long trackers still move with every win.
+function tierBarHTML(p) {
+  const s = p.streak || 0, i = TIERS.findIndex((t, k) => s >= t.min && !(TIERS[k + 1] && s >= TIERS[k + 1].min)), cur = TIERS[i], next = TIERS[i + 1];
+  if (!next) return `<span class="lbar tbar top" style="--b1:${cur.c1};--b2:${cur.c2}"><span class="lbar-cap"><span>${cur.sym} ${esc(cur.name)} · top tier</span></span></span>`;
+  const n = next.min - cur.min, done = s - cur.min, pct = Math.round(done / n * 100), left = next.min - s;
+  const tr = barTrackHTML(BAR_STYLE, pct, n, "");
+  return `<span class="lbar tbar ${tr.v ? "v-" + tr.v : ""}" style="--b1:${next.c1};--b2:${next.c2};--n:${tr.n}" title="${plural(left, "win")} to ${esc(next.name)}">
+    <span class="lbar-cap"><span>Next tier: <em>${next.sym} ${esc(next.name)}</em></span><span>${plural(left, "win")}</span></span>
+    ${tr.html}</span>`;
 }
 function liveCardHTML(l, p) {
   if (!l) return "";
@@ -2394,7 +2413,7 @@ function boardRow(p) {
   return `<div class="frow lb-row ${place ? "place" + place : ""} ${p.is_me ? "me" : ""}" data-fid="${p.id}">
     <span class="lb-rank">${place ? MEDALS[place - 1] : p.rank}</span>
     <button class="fwho" data-fopen="${p.id}">${personAvatar(p.display_name, p.avatar_url, p.streak, t, 42, { badge: true })}
-      <span class="fname"><span class="lb-namerow"><b>${glowNameAs(p.display_name, t)}${p.is_me ? ` <em class="lb-you">You</em>` : ""}</b>${p.live ? `<span class="lb-bal" title="Tracker balance and target"><b>${moneyTiny(p.live.balance)}</b><i>→</i>${moneyTiny(p.live.target)}</span>` : ""}</span><small>${sub}</small>${liveBarHTML(p.live, p, false, place, true)}</span></button>
+      <span class="fname"><span class="lb-namerow"><b>${glowNameAs(p.display_name, t)}${p.is_me ? ` <em class="lb-you">You</em>` : ""}</b>${p.live ? `<span class="lb-bal" title="Tracker balance and target"><b>${moneyTiny(p.live.balance)}</b><i>→</i>${moneyTiny(p.live.target)}</span>` : ""}</span><small>${sub}</small>${liveBarHTML(p.live, p, false, place, true)}${p.live ? tierBarHTML(p) : ""}</span></button>
     <span class="lb-score">${boardValue(p)}</span></div>`;
 }
 document.addEventListener("click", e => {
