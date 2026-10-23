@@ -1016,7 +1016,7 @@ canvas.arc-sparks { position: fixed; inset: 0; width: 100%; height: 100%; z-inde
 .sp-ring circle { fill: none; stroke-width: 5; stroke-linecap: round; }
 .sp-track { stroke: rgba(255,255,255,.08); }
 .sp-fill { stroke: url(#spGrad); stroke-dasharray: 100 100; stroke-dashoffset: 100; filter: drop-shadow(0 0 6px rgba(255,150,50,.75));
-  animation: sp-charge 3.9s cubic-bezier(.45,.05,.3,1) .15s forwards; }
+  animation: sp-charge 2.9s cubic-bezier(.45,.05,.3,1) .15s forwards; }
 #splash.done .sp-fill { animation: sp-full .35s ease-out forwards; }
 #splash.done .sp-mark { animation: sp-flash .45s ease-out; }
 .sp-word { position: relative; font-family: var(--display); font-weight: 900; font-size: 44px; line-height: 1; letter-spacing: .08em; text-transform: uppercase; display: flex; gap: .28em; }
@@ -1029,15 +1029,24 @@ canvas.arc-sparks { position: fixed; inset: 0; width: 100%; height: 100%; z-inde
 .sp-embers i { position: absolute; width: 3px; height: 3px; border-radius: 50%; background: #ffb347; box-shadow: 0 0 6px #ff8a2a; opacity: 0;
   animation: sp-rise 2.2s ease-out infinite; }
 /* The logo's chopper hovers while the ring charges, then lifts off and flies away once it's full */
-.sp-mark img.sp-chopper { box-shadow: none; border-radius: 0; transform-origin: 18.5% 25%; animation: sp-hover 1.6s ease-in-out infinite; }
-#splash.done .sp-mark img.sp-chopper { animation: sp-fly .95s cubic-bezier(.55,0,.75,.4) .15s forwards; }
+.sp-heli { position: absolute; inset: 22px; width: 132px; height: 132px; transform-origin: 17.5% 24.5%; animation: sp-hover 1.6s ease-in-out infinite; }
+.sp-mark .sp-heli img.sp-chopper { inset: 0; box-shadow: none; border-radius: 0; }
+.sp-tail { position: absolute; left: 12%; top: 26%; width: 1px; height: 1px; }
+/* Take-off: rotors spool up with a small wobble, it lifts straight up, dips its nose and only then picks up speed off to the right */
+#splash.done .sp-heli { animation: sp-fly 2.4s .1s both; }
 @keyframes sp-hover { 50% { transform: translateY(-1.5px); } }
 @keyframes sp-fly {
-  0% { transform: none; opacity: 1; }
-  22% { transform: translate(2px, -7px) rotate(-3deg); }
-  45% { transform: translate(30px, -40px) rotate(9deg) scale(.92); }
-  100% { transform: translate(330px, -360px) rotate(12deg) scale(.45); opacity: 0; }
+  0% { transform: none; animation-timing-function: ease-in-out; }
+  8% { transform: translate(0, -1px) rotate(-1deg); }
+  16% { transform: translate(0, -3px) rotate(1deg); animation-timing-function: ease-in-out; }
+  36% { transform: translate(-1px, -20px) rotate(-2deg); animation-timing-function: ease-in-out; }
+  48% { transform: translate(5px, -28px) rotate(7deg); animation-timing-function: cubic-bezier(.5, 0, .9, .6); }
+  82% { opacity: 1; }
+  100% { transform: translate(290px, -230px) rotate(10deg) scale(.55); opacity: 0; }
 }
+.sp-spark { position: fixed; width: 3px; height: 3px; margin: -1.5px 0 0 -1.5px; border-radius: 50%; background: #ffd27a; box-shadow: 0 0 5px #ff9a3a, 0 0 1px #fff;
+  pointer-events: none; animation: sp-spark .7s ease-out forwards; }
+@keyframes sp-spark { 0% { opacity: 1; transform: none; } 100% { opacity: 0; transform: translate(var(--x), var(--y)) scale(.3); } }
 @keyframes sp-charge { to { stroke-dashoffset: 22; } }
 @keyframes sp-full { from { stroke-dashoffset: 22; } to { stroke-dashoffset: 0; } }
 @keyframes sp-pop { from { opacity: 0; transform: scale(.82); } to { opacity: 1; transform: none; } }
@@ -1072,7 +1081,7 @@ canvas.arc-sparks { position: fixed; inset: 0; width: 100%; height: 100%; z-inde
   <div class="sp-embers"><i style="left:84px;top:26px;--x:29px;--y:-60px;animation-delay:0.2s"></i><i style="left:60px;top:65px;--x:39px;--y:-125px;animation-delay:0.37s"></i><i style="left:20px;top:86px;--x:7px;--y:-64px;animation-delay:0.54s"></i><i style="left:-26px;top:84px;--x:-14px;--y:-99px;animation-delay:0.71s"></i><i style="left:-65px;top:60px;--x:-30px;--y:-86px;animation-delay:0.88s"></i><i style="left:-86px;top:20px;--x:-43px;--y:-92px;animation-delay:1.05s"></i><i style="left:-84px;top:-26px;--x:-47px;--y:-104px;animation-delay:1.22s"></i><i style="left:-60px;top:-65px;--x:-24px;--y:-72px;animation-delay:1.39s"></i><i style="left:-20px;top:-86px;--x:-9px;--y:-83px;animation-delay:1.56s"></i><i style="left:26px;top:-84px;--x:14px;--y:-98px;animation-delay:1.73s"></i><i style="left:65px;top:-60px;--x:43px;--y:-128px;animation-delay:1.9s"></i><i style="left:86px;top:-20px;--x:53px;--y:-117px;animation-delay:2.07s"></i></div>
   <div class="sp-mark">
     <svg class="sp-ring" viewBox="0 0 176 176"><defs><linearGradient id="spGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffd23f"/><stop offset=".55" stop-color="#ff8a2a"/><stop offset="1" stop-color="#ff4f6d"/></linearGradient></defs><circle class="sp-track" cx="88" cy="88" r="83"/><circle class="sp-fill" cx="88" cy="88" r="83" pathLength="100"/></svg>
-    <img src="splash-logo.png" alt=""><img class="sp-chopper" src="splash-chopper.png" alt="">
+    <img src="splash-logo.png" alt=""><div class="sp-heli"><img class="sp-chopper" src="splash-chopper.png" alt=""><i class="sp-tail"></i></div>
   </div>
   <div class="sp-word"><span>Pipe</span><span>Dream</span></div>
   <div class="sp-tag">Bet smarter · Compound the streak</div>

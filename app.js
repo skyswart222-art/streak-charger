@@ -1944,10 +1944,24 @@ function renderSetupNeeded() {
 
 /* ---------- Launch splash ----------
    Shown from the page itself so it appears straight away; once the first screen is ready the ring finishes charging, the chopper flies off and it fades out. */
-const SPLASH_MIN = 3400;
+const SPLASH_MIN = 3000;
 function hideSplash() {
   const s = document.getElementById("splash"); if (!s || s.dataset.going) return; s.dataset.going = "1";
-  setTimeout(() => { s.classList.add("done"); setTimeout(() => { s.classList.add("gone"); setTimeout(() => s.remove(), 520); }, 1100); }, Math.max(0, SPLASH_MIN - performance.now()));
+  setTimeout(() => { s.classList.add("done"); heliSparks(s); setTimeout(() => { s.classList.add("gone"); setTimeout(() => s.remove(), 520); }, 2000); }, Math.max(0, SPLASH_MIN - performance.now()));
+}
+// A few sparks drop off the tail once the chopper tips forward, left behind where it was rather than following it
+function heliSparks(s) {
+  const tail = s.querySelector(".sp-tail");
+  if (!tail || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  let n = 0;
+  setTimeout(function drop() {
+    if (!s.isConnected || n++ > 22) return;
+    const r = tail.getBoundingClientRect(), b = document.createElement("b");
+    b.className = "sp-spark";
+    b.style.cssText = `left:${r.left}px;top:${r.top}px;--x:${-10 - Math.random() * 18}px;--y:${8 + Math.random() * 22}px;animation-duration:${.55 + Math.random() * .4}s`;
+    s.appendChild(b); setTimeout(() => b.remove(), 1000);
+    setTimeout(drop, 55 + Math.random() * 40);
+  }, 1050);
 }
 setTimeout(hideSplash, 9000);
 
