@@ -555,7 +555,7 @@ function renderTabs() {
   const show = state.page === "home" || state.page === "stats" || state.page === "trackers";
   $("#tabs").hidden = !show;
   if (!show) return;
-  $("#tabs").innerHTML = state.trackers.filter(t => state.page === "trackers" || kindOf(t) === curSection()).map(t => {
+  $("#tabs").innerHTML = state.trackers.filter(t => kindOf(t) === curSection()).map(t => {
     const s = compute(t);
     return `<button class="tab ${t.id === state.activeId ? "active" : ""}" data-tab="${t.id}"><span class="dot" style="background:${t.accent}"></span>${esc(t.name)}${t.shared === false && !localMode ? " 🔒" : ""}${t.paused ? " ⏸" : s.pending ? " ⏳" : ""}</button>`;
   }).join("") + `<button class="tab" data-add aria-label="Add tracker">＋</button><button class="tab ic ${state.page === "trackers" ? "active" : ""}" data-nav="trackers" aria-label="All trackers"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="2"/><rect x="13" y="4" width="7" height="7" rx="2"/><rect x="4" y="13" width="7" height="7" rx="2"/><rect x="13" y="13" width="7" height="7" rx="2"/></svg></button>`;
@@ -564,7 +564,7 @@ function renderTabs() {
 function render(anim) {
   stopFx();
   if (!state) return;
-  if (["home", "stats", "planner"].includes(state.page)) { const list = sectionTrackers(); if (list.length && kindOf(active()) !== curSection()) state.activeId = list[0].id; }
+  if (["home", "stats", "planner", "trackers"].includes(state.page)) { const list = sectionTrackers(); if (list.length && kindOf(active()) !== curSection()) state.activeId = list[0].id; }
   tcCache = null; applySkin(); renderNav(); renderTabs(); renderMe();
   const t = active();
   setAccent(state.page === "home" || state.page === "stats" ? t.accent : ACCENTS[0]);
@@ -657,9 +657,10 @@ function historyHTML(t, s) {
 /* ---------- Trackers overview ---------- */
 function renderTrackers() {
   $("#view").innerHTML = `
-    <div class="head" style="padding-top:18px"><div><div class="eyebrow">${plural(state.trackers.length, "tracker")}</div><h1>All trackers</h1></div></div>
+    <div class="head" style="padding-top:18px"><div><div class="eyebrow">${curSection() === "regular" ? "Regular betting" : "Compounding"} · ${plural(sectionTrackers().length, "tracker")}</div><h1>All trackers</h1></div></div>
+    ${kindNavHTML()}
     <div class="ov-grid">
-      ${state.trackers.map(t => { const s = compute(t); if (s.regular) return regOvCard(t, s); return `
+      ${sectionTrackers().map(t => { const s = compute(t); if (s.regular) return regOvCard(t, s); return `
         <button class="glass ov-card ${t.id === state.activeId ? "active" : ""}" data-open="${t.id}">
           ${ringSVG(s)}
           <div class="n"><span class="dot" style="width:8px;height:8px;border-radius:50%;background:${t.accent};flex:none"></span>${esc(t.name)}</div>
@@ -668,7 +669,7 @@ function renderTrackers() {
           <div class="st">${s.reached ? "🏆 target hit" : winsText(s.remaining) + " to go"}</div>
           ${s.banked ? `<div class="st" style="color:var(--gold)">🏦 ${moneyShort(s.banked)} banked</div>` : ""}
         </button>`; }).join("")}
-      <button class="glass ov-card add" data-add="compound"><span>＋</span>New compounding tracker</button><button class="glass ov-card add" data-add="regular"><span>＋</span>New regular tracker</button>
+      ${curSection() === "regular" ? `<button class="glass ov-card add" data-add="regular"><span>＋</span>New regular tracker</button>` : `<button class="glass ov-card add" data-add="compound"><span>＋</span>New compounding tracker</button>`}
     </div>
     <div class="section-h"><h2>${localMode ? "Saved on this device" : "Synced to your account"}</h2></div>
     <div class="glass card">
@@ -1367,6 +1368,7 @@ const compTrackers = () => state.trackers.filter(t => kindOf(t) === "compound");
 let section = null; // the Home/Stats switch; null follows the open tracker
 const curSection = () => section || kindOf(active());
 const sectionTrackers = () => state.trackers.filter(t => kindOf(t) === curSection());
+const feedKind = it => it.kind === "bank" ? "compound" : (it.bet && it.bet.kind) || "compound";
 const pctSigned = (x, d = 1) => isFinite(x) ? (x >= 0 ? "+" : "−") + (Math.abs(x) * 100).toFixed(d) + "%" : "–";
 const KIND_NAV = [["compound", "Compounding"], ["regular", "Regular"]];
 const kindNavHTML = () => `<div class="seg kindnav">${KIND_NAV.map(([k, n]) => `<button data-kind="${k}" class="${curSection() === k ? "on" : ""}">${n}</button>`).join("")}</div>`;
@@ -2238,9 +2240,9 @@ function renderSetupNeeded() {
 }
 
 /* ---------- skyversion and update history (newest first; build.py fills these from VERSION and changelog.txt) ---------- */
-const SKY_LOG = [["1.51", "Oct 23", "Regular betting trackers: a ledger with stakes, stats and a Regular leaderboard"], ["1.50", "Oct 23", "Profile button at the top right only shows on Home"], ["1.49", "Oct 23", "Version number on the splash and profile, plus this update history"], ["1.48", "Oct 23", "Hold the mic to talk and let go to send, in every chat"], ["1.47", "Oct 23", "Slower, more realistic chopper take-off with a spark trail"], ["1.46", "Oct 23", "The chopper flies away when the splash ring fills"], ["1.45", "Oct 23", "Ranked ladder: Rookie, Bronze to Champion in three levels, then Legend"], ["1.44", "Oct 23", "Tied players shove each other on the leaderboard"], ["1.43", "Oct 23", "Launch splash runs five seconds"], ["1.42", "Oct 23", "Launch splash stays up a little longer"], ["1.41", "Oct 23", "Launch splash screen with the app logo"], ["1.40", "Oct 23", "Top-three embers, risky bet tags and New joiners in Friends"], ["1.39", "Oct 23", "Calmer leaderboard bars and first-place embers"], ["1.38", "Oct 23", "Block progress bars and a next-tier bar on the leaderboard"], ["1.37", "Oct 23", "Leaderboard win sparks, pinned group chats and a welcome note"], ["1.36", "Oct 23", "Leaderboard balance pill"], ["1.35", "Oct 22", "Removed the \"edited\" tag from tracker targets"], ["1.34", "Oct 22", "Verified wins with a gold plaque, and flagging suspicious slips"], ["1.33", "Oct 22", "Tier-coloured sparks that build over your last 3 wins"], ["1.32", "Oct 22", "Sparks come off the tier progress ring"], ["1.31", "Oct 22", "Sparks build up toward a tier-up"], ["1.30", "Oct 22", "Grinder sparks off the arc star"], ["1.29", "Oct 22", "Delete pending bets and trackers"], ["1.28", "Oct 21", "Same-size leaderboard cards with gold, silver and bronze top three"], ["1.27", "Oct 21", "Animated leaderboard with charging bars and win/loss bursts"], ["1.26", "Oct 21", "Pop-up sheets close with a button or a pull-down"], ["1.25", "Oct 21", "Live progress bars for friends, and tap a friend to see their bets"], ["1.24", "Oct 21", "See when someone is typing in chats and groups"], ["1.23", "Oct 21", "New app icon: a rig at sunset inside the streak arc"], ["1.22", "Oct 21", "Rig-worker streak tiers"], ["1.21", "Oct 21", "Show or hide each tracker from friends and the community"], ["1.20", "Oct 21", "Bet slip screenshots are kept with each logged bet"], ["1.19", "Oct 21", "Top row sits below the iPhone status bar, and New group always shows"], ["1.18", "Oct 21", "Removed the background glow; solid chat header"], ["1.17", "Oct 21", "No more haze above the top bar when pulling down"], ["1.16", "Oct 21", "Clean top bar instead of a hazy fade"], ["1.15", "Oct 21", "Bottom bar stays at the bottom on short pages"], ["1.14", "Oct 21", "Undid the bottom bar gap fix"], ["1.13", "Oct 21", "Closed the gap under the bottom bar"], ["1.12", "Oct 21", "Hints tab in Stats"], ["1.11", "Oct 21", "iPhone no longer zooms in and cuts off the screen edges"], ["1.10", "Oct 21", "Top bar no longer covers screens; locked themes stay a surprise"], ["1.9", "Oct 21", "Renamed the app to Pipe Dream"], ["1.8", "Oct 21", "Bet slip reader is back, free and on the phone"], ["1.7", "Oct 21", "App icon and Home Screen settings"], ["1.6", "Oct 21", "Challenges"], ["1.5", "Oct 21", "Group chats"], ["1.4", "Oct 21", "Friends feed"], ["1.3", "Oct 21", "Chat between friends"], ["1.2", "Oct 21", "Leaderboard"], ["1.1", "Oct 21", "Friends, with streaks worked out by the database"], ["1.0", "Oct 19", "First version: accounts, sync, profiles and five tabs"]];
+const SKY_LOG = [["1.52", "Oct 23", "Compounding and regular betting kept fully separate: trackers page, feed, friend bets, profile and bet sharing"], ["1.51", "Oct 23", "Regular betting trackers: a ledger with stakes, stats and a Regular leaderboard"], ["1.50", "Oct 23", "Profile button at the top right only shows on Home"], ["1.49", "Oct 23", "Version number on the splash and profile, plus this update history"], ["1.48", "Oct 23", "Hold the mic to talk and let go to send, in every chat"], ["1.47", "Oct 23", "Slower, more realistic chopper take-off with a spark trail"], ["1.46", "Oct 23", "The chopper flies away when the splash ring fills"], ["1.45", "Oct 23", "Ranked ladder: Rookie, Bronze to Champion in three levels, then Legend"], ["1.44", "Oct 23", "Tied players shove each other on the leaderboard"], ["1.43", "Oct 23", "Launch splash runs five seconds"], ["1.42", "Oct 23", "Launch splash stays up a little longer"], ["1.41", "Oct 23", "Launch splash screen with the app logo"], ["1.40", "Oct 23", "Top-three embers, risky bet tags and New joiners in Friends"], ["1.39", "Oct 23", "Calmer leaderboard bars and first-place embers"], ["1.38", "Oct 23", "Block progress bars and a next-tier bar on the leaderboard"], ["1.37", "Oct 23", "Leaderboard win sparks, pinned group chats and a welcome note"], ["1.36", "Oct 23", "Leaderboard balance pill"], ["1.35", "Oct 22", "Removed the \"edited\" tag from tracker targets"], ["1.34", "Oct 22", "Verified wins with a gold plaque, and flagging suspicious slips"], ["1.33", "Oct 22", "Tier-coloured sparks that build over your last 3 wins"], ["1.32", "Oct 22", "Sparks come off the tier progress ring"], ["1.31", "Oct 22", "Sparks build up toward a tier-up"], ["1.30", "Oct 22", "Grinder sparks off the arc star"], ["1.29", "Oct 22", "Delete pending bets and trackers"], ["1.28", "Oct 21", "Same-size leaderboard cards with gold, silver and bronze top three"], ["1.27", "Oct 21", "Animated leaderboard with charging bars and win/loss bursts"], ["1.26", "Oct 21", "Pop-up sheets close with a button or a pull-down"], ["1.25", "Oct 21", "Live progress bars for friends, and tap a friend to see their bets"], ["1.24", "Oct 21", "See when someone is typing in chats and groups"], ["1.23", "Oct 21", "New app icon: a rig at sunset inside the streak arc"], ["1.22", "Oct 21", "Rig-worker streak tiers"], ["1.21", "Oct 21", "Show or hide each tracker from friends and the community"], ["1.20", "Oct 21", "Bet slip screenshots are kept with each logged bet"], ["1.19", "Oct 21", "Top row sits below the iPhone status bar, and New group always shows"], ["1.18", "Oct 21", "Removed the background glow; solid chat header"], ["1.17", "Oct 21", "No more haze above the top bar when pulling down"], ["1.16", "Oct 21", "Clean top bar instead of a hazy fade"], ["1.15", "Oct 21", "Bottom bar stays at the bottom on short pages"], ["1.14", "Oct 21", "Undid the bottom bar gap fix"], ["1.13", "Oct 21", "Closed the gap under the bottom bar"], ["1.12", "Oct 21", "Hints tab in Stats"], ["1.11", "Oct 21", "iPhone no longer zooms in and cuts off the screen edges"], ["1.10", "Oct 21", "Top bar no longer covers screens; locked themes stay a surprise"], ["1.9", "Oct 21", "Renamed the app to Pipe Dream"], ["1.8", "Oct 21", "Bet slip reader is back, free and on the phone"], ["1.7", "Oct 21", "App icon and Home Screen settings"], ["1.6", "Oct 21", "Challenges"], ["1.5", "Oct 21", "Group chats"], ["1.4", "Oct 21", "Friends feed"], ["1.3", "Oct 21", "Chat between friends"], ["1.2", "Oct 21", "Leaderboard"], ["1.1", "Oct 21", "Friends, with streaks worked out by the database"], ["1.0", "Oct 19", "First version: accounts, sync, profiles and five tabs"]];
 function updateHistoryHTML() {
-  return `<div class="appver">skyversion 1.51</div>
+  return `<div class="appver">skyversion 1.52</div>
     <details class="glass card uphist"><summary>Update history <small>${plural(SKY_LOG.length, "version")}</small></summary>
       <ol>${SKY_LOG.map(([v, d, t], i) => `<li${i ? "" : ' class="now"'}><b>${esc(v)}</b><span>${esc(t)}</span><small>${esc(d)}${i ? "" : " · you're on this"}</small></li>`).join("")}</ol></details>`;
 }
@@ -2371,7 +2373,7 @@ function renderProfile() {
     </div>
     <div class="glass card"><button class="btn sec" data-nav="awards">🎨 Themes and awards</button></div>
     <div class="glass card"><h3>Your trackers</h3><div class="cap">Deleting a tracker removes it and all its bets for good.</div>
-      <div class="ptrk">${state.trackers.map(t => `<div class="ptrk-row"><span class="ptrk-dot" style="background:${esc(t.accent)}"></span><span class="ptrk-name"><b>${esc(t.name)}</b><small>${plural(t.bets.length, "bet")}${t.shared === false ? " · 🔒 private" : ""}</small></span><button class="ptrk-del" data-pdel="${t.id}" aria-label="Delete ${esc(t.name)}">🗑 Delete</button></div>`).join("")}</div></div>
+      ${KIND_NAV.filter(([k]) => state.trackers.some(t => kindOf(t) === k)).map(([k, kn]) => `<div class="ptrk-h">${kn}</div><div class="ptrk">${state.trackers.filter(t => kindOf(t) === k).map(t => `<div class="ptrk-row"><span class="ptrk-dot" style="background:${esc(t.accent)}"></span><span class="ptrk-name"><b>${esc(t.name)}</b><small>${plural(t.bets.length, "bet")}${t.shared === false ? " · 🔒 private" : ""}</small></span><button class="ptrk-del" data-pdel="${t.id}" aria-label="Delete ${esc(t.name)}">🗑 Delete</button></div>`).join("")}</div>`).join("")}</div>
     <button class="btn warn" id="signOut" style="margin-top:14px">Log out</button>
     ${updateHistoryHTML()}`;
   $("#avFile").onchange = async e => {
@@ -2700,13 +2702,20 @@ async function loadFriendBets(sh, p) {
   const lv = sh.querySelector("#fLive"); if (lv) lv.innerHTML = liveCardHTML(d.live, p);
   const bets = d.bets || [];
   const mine = Cloud.user && p.id === Cloud.user.id;
-  box.innerHTML = bets.length ? bets.map(b => friendBetHTML(b, mine)).join("") : `<div class="cap" style="margin:0">No bets to show yet. Bets on trackers ${esc(p.display_name)} keeps private don't show here.</div>`;
+  let fKind = curSection();
+  const draw = () => {
+  const list = bets.filter(b => (b.kind || "compound") === fKind);
+  box.innerHTML = `<div class="seg kindnav fkind">${KIND_NAV.map(([k, n]) => `<button data-fkind="${k}" class="${fKind === k ? "on" : ""}">${n}</button>`).join("")}</div>` +
+    (list.length ? list.map(b => friendBetHTML(b, mine)).join("") : `<div class="cap" style="margin:0">No ${fKind === "regular" ? "regular" : "compounding"} bets to show yet. Bets on trackers ${esc(p.display_name)} keeps private don't show here.</div>`);
+  box.querySelectorAll("[data-fkind]").forEach(x => x.onclick = () => { fKind = x.dataset.fkind; draw(); });
   box.querySelectorAll("[data-fbettoggle]").forEach(h => h.onclick = () => {
     const el = h.closest(".fbet"), more = el.querySelector(".fbet-more");
     more.hidden = !more.hidden; el.classList.toggle("open", !more.hidden);
     if (!more.hidden) more.querySelectorAll(".slip img:not([src])").forEach(img => Cloud.mediaUrl(img.dataset.media).then(u => { img.src = u; }).catch(() => img.closest(".slip").classList.add("broken")));
   });
   wireFriendFlags(box, bets);
+  };
+  draw();
 }
 
 /* ---------- Leaderboard ----------
@@ -3262,7 +3271,7 @@ function renderConvoBody(keepTop) {
 function betCardHTML(b) {
   const res = { win: ["✅", "Won", "win"], loss: ["❌", "Lost", "loss"], pending: ["⏳", "Pending", "pend"] }[b.result] || ["🎟️", "", ""];
   return `<div class="mbet ${res[2]}"><div class="mbet-top"><span>🎟️ ${esc(b.sport)}${b.tracker ? ` · ${esc(b.tracker)}` : ""}</span><span class="mbet-res">${res[0]} ${res[1]}</span></div>
-    <div class="mbet-text">${esc(b.text)}</div><div class="mbet-odds">@ ${odds2(b.odds)}</div></div>`;
+    <div class="mbet-text">${esc(b.text)}</div><div class="mbet-odds">${b.stake != null ? `${money(Number(b.stake))} ` : ""}@ ${odds2(b.odds)}</div></div>`;
 }
 function renderAttached() {
   const el = $("#cmpBet"); if (!el) return;
@@ -3271,10 +3280,10 @@ function renderAttached() {
   if (chatBet) el.innerHTML = `<span>🎟️ Sharing: <b>${esc(chatBet.text)}</b> @ ${odds2(chatBet.odds)}</span><button data-unbet aria-label="Remove">✕</button>`;
 }
 function pickBet() {
-  const all = state.trackers.flatMap(t => t.bets.map(b => ({ ...b, tracker: t.name }))).sort((a, b) => b.createdAt - a.createdAt).slice(0, 25);
+  const all = state.trackers.flatMap(t => t.bets.map(b => ({ ...b, tracker: t.name, kind: kindOf(t) }))).sort((a, b) => b.createdAt - a.createdAt);
   const icon = { win: "✅", loss: "❌", pending: "⏳" };
   const sh = openSheet(`<h3>Share a bet</h3><div class="sub">Pick one of your logged bets. Your friend sees its live result.</div>
-    ${all.length ? `<div class="pick-bets">${all.map(b => `<button class="pick-bet" data-pick="${b.id}"><span>${icon[b.result] || "🎟️"}</span><span><b>${esc(b.text)}</b><small>${esc(b.sport)} · ${esc(b.tracker)} · @ ${odds2(b.odds)} · ${when(b.createdAt)}</small></span></button>`).join("")}</div>`
+    ${all.length ? KIND_NAV.filter(([k]) => all.some(b => b.kind === k)).map(([k, kn]) => `<div class="pick-h">${kn}</div><div class="pick-bets">${all.filter(b => b.kind === k).slice(0, 25).map(b => `<button class="pick-bet" data-pick="${b.id}"><span>${icon[b.result] || "🎟️"}</span><span><b>${esc(b.text)}</b><small>${esc(b.sport)} · ${esc(b.tracker)} · @ ${odds2(b.odds)} · ${when(b.createdAt)}</small></span></button>`).join("")}</div>`).join("")
       : `<div class="cap">You haven't logged any bets yet.</div>`}`);
   sh.querySelectorAll("[data-pick]").forEach(el => el.onclick = () => { chatBet = all.find(b => b.id === el.dataset.pick); closeSheet(); renderAttached(); $("#cmpText") && $("#cmpText").focus(); });
 }
@@ -3369,7 +3378,7 @@ async function loadFeed(maxAge = 0, more = false) {
 
 function renderFeed() {
   if (localMode) { go("home"); return; }
-  $("#view").innerHTML = `<div class="head" style="padding-top:18px"><div><div class="eyebrow">You and your friends</div><h1>Feed</h1></div></div><div id="feedBody"></div>`;
+  $("#view").innerHTML = `<div class="head" style="padding-top:18px"><div><div class="eyebrow">You and your friends</div><h1>Feed</h1></div></div>${kindNavHTML()}<div id="feedBody"></div>`;
   renderFeedBody();
   loadFeed(4000); loadFriends();
 }
@@ -3378,11 +3387,11 @@ function renderFeedBody() {
   const hasFriends = (friends || []).some(f => f.status === "accepted") || (feed || []).some(x => x.user_id !== Cloud.user.id);
   if (feedErr && !feed) { box.innerHTML = `<div class="glass card"><div class="err" style="margin:0">${esc(feedErr)}</div></div>`; return; }
   if (!feed) { box.innerHTML = `<div class="glass card"><div class="cap" style="margin:0">Loading the feed…</div></div>`; return; }
-  const seen = feedSeen();
+  const seen = feedSeen(), reg = curSection() === "regular", items = feed.filter(it => feedKind(it) === curSection());
   let html = friends && !hasFriends ? `<div class="glass card fempty"><div class="soon-ic">📣</div><p>Your feed shows the bets your friends log, win and lose, as they happen. Add a friend to fill it up.</p><button class="btn sec" data-nav="friends">Find friends</button></div>` : "";
-  if (!feed.length && hasFriends) html += `<div class="glass card fempty"><div class="soon-ic">📣</div><p>Nothing here yet. When you or your friends log a bet, it shows up here.</p></div>`;
+  if (!items.length && hasFriends) html += `<div class="glass card fempty"><div class="soon-ic">${reg ? "📒" : "📣"}</div><p>No ${reg ? "regular" : "compounding"} activity here yet. When you or your friends log a ${reg ? "regular" : "compounding"} bet, it shows up here.</p></div>`;
   let lastDay = "";
-  for (const it of feed) {
+  for (const it of items) {
     const day = new Date(it.at).toDateString();
     if (day !== lastDay) { html += `<div class="convo-day feed-day">${day === new Date().toDateString() ? "Today" : chatTime(it.at, true)}</div>`; lastDay = day; }
     html += feedItem(it, it.user_id !== Cloud.user.id && it.at > seen && seen > 0);

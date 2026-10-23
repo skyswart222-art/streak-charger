@@ -784,7 +784,7 @@ language sql stable security definer set search_path = public as $$
   )
   select pg.kind, pg.ref_id, pg.key, pg.at, p.id, p.display_name, p.avatar_url, p.streak, p.tier_idx,
          case when b.id is null then null else jsonb_build_object('id', b.id, 'text', b.text, 'sport', b.sport, 'odds', b.odds,
-           'result', b.result, 'created_at', b.created_at, 'settled_at', b.settled_at) end,
+           'result', b.result, 'created_at', b.created_at, 'settled_at', b.settled_at, 'stake', b.stake, 'kind', t.kind) end,
          t.name, pg.amount,
          coalesce((select jsonb_object_agg(x.emoji, x.n) from (select r.emoji, count(*) as n from public.feed_reactions r
                     where r.kind = pg.kind and r.ref_id = pg.ref_id group by r.emoji) x), '{}'::jsonb),
