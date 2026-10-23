@@ -938,6 +938,21 @@ canvas.arc-sparks { position: fixed; inset: 0; width: 100%; height: 100%; z-inde
 .lbar.v-meter .lbar-spark { display: none; }
 @media (prefers-reduced-motion: reduce) { .lnodes u.next { animation: none; } }
 
+.lbar.tbar { margin-top: 8px; gap: 5px; }
+.lbar.tbar .lbar-cap { font-size: 11px; }
+.lbar.tbar .lbar-cap em { color: var(--b1); }
+.lbar.tbar .lbar-track { height: 6px; }
+.lbar.tbar .lbar-track i { animation: none; }
+.lbar.tbar.v-seg .lbar-track { height: 7px; }
+.lbar.tbar.v-tube .lbar-track { height: 9px; }
+.lbar.tbar.v-tube .lbar-spark { width: 12px; height: 12px; margin-top: -6px; right: -6px; }
+.lbar.tbar.v-nodes .lbar-track { height: 3px; margin: 5px 5px; }
+.lbar.tbar .lnodes u { width: 9px; height: 9px; margin: 0 -4.5px; border-width: 1.5px; }
+.lbar.tbar .lnodes u:last-child { width: 11px; height: 11px; margin-right: -5.5px; border-radius: 3px; border-color: var(--b1); }
+.lbar.tbar.v-meter .lbar-track { height: 15px; border-radius: 6px; }
+.lbar.tbar.v-meter .lbar-track i { border-radius: 4px; min-width: 28px; }
+.lbar.tbar.v-meter .lbar-track i s { font-size: 9px; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
   .stamp, .x-mark, .glass-fx .hg, .glass-fx .rk, .tierburst { animation: fadeQuick 1.2s forwards !important; }
