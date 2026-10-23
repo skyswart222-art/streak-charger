@@ -2311,14 +2311,54 @@ function animateBoard(rows, fresh, at) {
     el.closest(".lbar").classList.add("charging"); setTimeout(() => el.closest(".lbar") && el.closest(".lbar").classList.remove("charging"), 1600 + 120 * i);
   });
   Object.entries(changes).forEach(([id, [kind, text]]) => { bursts[id] = { kind, text, until: Date.now() + 4200 }; });
+  // A fresh win throws one burst of sparks off the edges of that person's box, in their tier's colours.
+  Object.entries(changes).forEach(([id, [kind]]) => {
+    if (kind !== "win") return;
+    const p = rows.find(r => String(r.id) === id), el = document.querySelector(`#view .lb-row[data-fid="${CSS.escape(id)}"]`);
+    if (p && el) setTimeout(() => boxSparks(el, tierOf(p)), 250);
+  });
   // Bursts stay put if the board redraws while they're showing.
   Object.entries(bursts).forEach(([id, { kind, text, until }]) => {
     document.querySelectorAll(`#view [data-fid="${CSS.escape(id)}"], #view .lb-pod[data-fopen="${CSS.escape(id)}"]`).forEach(el => {
       el.classList.add("lb-" + kind);
-      el.insertAdjacentHTML("beforeend", `<span class="lb-burst ${kind}">${esc(text)}</span>`);
+      el.insertAdjacentHTML("beforeend", `<span class="lb-burst is-${kind}">${esc(text)}</span>`);
       setTimeout(() => { el.classList.remove("lb-" + kind); el.querySelectorAll(".lb-burst").forEach(x => x.remove()); }, until - Date.now());
     });
   });
+}
+function boxSparks(el, t) {
+  const r = el.getBoundingClientRect();
+  if (!r.width || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const cv = document.createElement("canvas"), dpr = devicePixelRatio || 1, W = innerWidth, H = innerHeight;
+  cv.className = "box-sparks"; cv.width = W * dpr; cv.height = H * dpr;
+  document.body.appendChild(cv);
+  const ctx = cv.getContext("2d"); ctx.scale(dpr, dpr);
+  const gold = t === TIERS[0], pal = [hexRGB(gold ? "#ffe27a" : t.c1), hexRGB(gold ? "#ff9d00" : t.c2)], per = 2 * (r.width + r.height), ps = [];
+  // Sparks start just outside the box edge and fly outward, so the name and numbers stay readable.
+  for (let i = 0; i < 150; i++) {
+    let d = Math.random() * per, x, y, nx = 0, ny = 0;
+    if (d < r.width) { x = r.left + d; y = r.top - 2; ny = -1; }
+    else if ((d -= r.width) < r.height) { x = r.right + 2; y = r.top + d; nx = 1; }
+    else if ((d -= r.height) < r.width) { x = r.right - d; y = r.bottom + 2; ny = 1; }
+    else { d -= r.width; x = r.left - 2; y = r.bottom - d; nx = -1; }
+    const sp = 2 + Math.random() * 4.5, a = (Math.random() - .5) * 1.1;
+    const vx = (nx * Math.cos(a) - ny * Math.sin(a)) * sp, vy = (nx * Math.sin(a) + ny * Math.cos(a)) * sp - Math.random() * 1.2;
+    ps.push({ x, y, vx, vy, t: 0, life: 44 + Math.random() * 40, w: 1.4 + Math.random() * 2 });
+  }
+  const frame = () => {
+    ctx.clearRect(0, 0, W, H); ctx.globalCompositeOperation = "lighter"; ctx.lineCap = "round";
+    for (let i = ps.length - 1; i >= 0; i--) {
+      const p = ps[i]; p.t++;
+      if (p.t > p.life) { ps.splice(i, 1); continue; }
+      const f = 1 - p.t / p.life, ox = p.x, oy = p.y, w = f * f * .6;
+      p.vy += .09; p.vx *= .97; p.x += p.vx; p.y += p.vy;
+      const m = k => Math.round((pal[1][k] + (pal[0][k] - pal[1][k]) * f) * (1 - w) + 255 * w);
+      ctx.strokeStyle = `rgba(${m(0)},${m(1)},${m(2)},${f})`; ctx.lineWidth = p.w;
+      ctx.beginPath(); ctx.moveTo(ox - p.vx * 2, oy - p.vy * 2); ctx.lineTo(p.x, p.y); ctx.stroke();
+    }
+    if (ps.length) requestAnimationFrame(frame); else cv.remove();
+  };
+  requestAnimationFrame(frame);
 }
 function boardRow(p) {
   const t = tierOf(p);
@@ -2428,8 +2468,10 @@ function renderChat() {
   if (chatWith) return renderConvo();
   loadChats(Date.now() - chatsAt > 1500); loadFriends();
   const withChat = new Set((chats || []).map(c => c.id));
-  const list = (chats || []).map(c => ({ at: c.last_at, html: chatRow(c) })).concat((groups || []).map(g => ({ at: g.last_at, html: groupRow(g) })))
-    .sort((a, b) => new Date(b.at) - new Date(a.at));
+  // Group chats stay pinned at the top, newest first, then one-on-one chats.
+  const newest = (a, b) => new Date(b.at) - new Date(a.at);
+  const list = (groups || []).map(g => ({ at: g.last_at, html: groupRow(g) })).sort(newest)
+    .concat((chats || []).map(c => ({ at: c.last_at, html: chatRow(c) })).sort(newest));
   const mates = (friends || []).filter(f => f.status === "accepted"), starters = mates.filter(f => !withChat.has(f.id));
   $("#view").innerHTML = `
     <div class="head" style="padding-top:18px"><div><div class="eyebrow">${unreadCount() ? plural(unreadCount(), "unread message") : "Your chats"}</div><h1>Chat</h1></div>
