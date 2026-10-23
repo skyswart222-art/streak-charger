@@ -892,6 +892,14 @@ canvas.arc-sparks { position: fixed; inset: 0; width: 100%; height: 100%; z-inde
 .fbet-flag .btn.on { border-color: rgba(255,59,78,.5); color: #ff5f6d; }
 .fbet-flag small { color: var(--muted); font-size: 12px; }
 
+/* Leaderboard: the tracker's balance and target sit in a small pill beside the name */
+.lb-namerow { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.lb-namerow > b { flex: 0 1 auto; min-width: 0; }
+.lb-bal { flex: none; display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 99px; font-size: 12px; font-weight: 600; color: var(--muted);
+  font-variant-numeric: tabular-nums; white-space: nowrap; background: color-mix(in srgb, var(--fg) 8%, transparent); border: 1px solid var(--stroke); }
+.lb-bal b { all: unset; color: var(--fg); font-weight: 800; }
+.lb-bal i { font-style: normal; opacity: .7; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
   .stamp, .x-mark, .glass-fx .hg, .glass-fx .rk, .tierburst { animation: fadeQuick 1.2s forwards !important; }
