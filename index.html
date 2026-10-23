@@ -912,6 +912,28 @@ canvas.arc-sparks { position: fixed; inset: 0; width: 100%; height: 100%; z-inde
 .welcome-small { margin: 0; font-size: 12px; color: var(--muted); }
 .welcome .btn { margin-top: 4px; }
 
+/* Progress bar styles */
+.lbar.v-seg .lbar-track { height: 11px; border-radius: 4px; box-shadow: none; -webkit-mask: repeating-linear-gradient(90deg, #000 0 calc(100% / var(--n) - 3px), transparent 0 calc(100% / var(--n))); mask: repeating-linear-gradient(90deg, #000 0 calc(100% / var(--n) - 3px), transparent 0 calc(100% / var(--n))); }
+.lbar.v-seg .lbar-track i { border-radius: 0; }
+.lbar.v-seg .lbar-track i::before { background: linear-gradient(180deg, rgba(255,255,255,.45), transparent 55%); animation: none; }
+.lbar.v-seg .lbar-spark { display: none; }
+
+.lbar.v-tube .lbar-track { height: 14px; overflow: visible; border: 1px solid color-mix(in srgb, var(--fg) 14%, transparent); background: linear-gradient(180deg, rgba(0,0,0,.35), color-mix(in srgb, var(--fg) 6%, transparent)), repeating-linear-gradient(90deg, transparent 0 calc(100% / var(--n) - 1px), color-mix(in srgb, var(--fg) 18%, transparent) 0 calc(100% / var(--n))); box-shadow: inset 0 2px 4px rgba(0,0,0,.5); }
+.lbar.v-tube .lbar-track i { inset: 1px auto 1px 1px; box-shadow: 0 0 14px color-mix(in srgb, var(--b1) 70%, transparent); }
+.lbar.v-tube .lbar-track i::before { inset: 1px 6px auto 6px; height: 40%; background: linear-gradient(180deg, rgba(255,255,255,.75), rgba(255,255,255,.1)); animation: none; }
+.lbar.v-tube .lbar-spark { width: 18px; height: 18px; margin-top: -9px; right: -9px; }
+
+
+
+.lbar.tbar { margin-top: 8px; gap: 5px; }
+.lbar.tbar .lbar-cap { font-size: 11px; }
+.lbar.tbar .lbar-cap em { color: var(--b1); }
+.lbar.tbar .lbar-track { height: 6px; }
+.lbar.tbar .lbar-track i { animation: none; }
+.lbar.tbar.v-seg .lbar-track { height: 7px; }
+.lbar.tbar.v-tube .lbar-track { height: 9px; }
+.lbar.tbar.v-tube .lbar-spark { width: 12px; height: 12px; margin-top: -6px; right: -6px; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
   .stamp, .x-mark, .glass-fx .hg, .glass-fx .rk, .tierburst { animation: fadeQuick 1.2s forwards !important; }
