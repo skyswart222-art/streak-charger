@@ -9,18 +9,49 @@ const KEY = "streak-charger.v1";
 const DAY = 864e5;
 const R = 104, C = 2 * Math.PI * R;
 // Ranked ladder: nine ranks everyone can read at a glance, three levels in each colour (I, II, III going up),
-// spaced out under 200 wins. The old rig names live on as each rank's nickname.
+// spaced out under 200 wins. Each rank has its own drawn badge in its metal or gem (see rankIcon).
 const RANKS = [
-  { rank: "Rookie",   nick: "Fresh Meat",       sym: "🐣", c1: "#c2c9d3", c2: "#7b8594", mins: [0] },
-  { rank: "Bronze",   nick: "Dunny Diver",      sym: "🔩", c1: "#f3c49b", c2: "#a8622c", mins: [2, 4, 6] },
-  { rank: "Silver",   nick: "Hungover Hand",    sym: "⚙️", c1: "#f2f5f9", c2: "#8d99ab", mins: [8, 11, 14] },
-  { rank: "Gold",     nick: "Rig Pig",          sym: "🪙", c1: "#fff1a8", c2: "#e0a400", mins: [17, 21, 25] },
-  { rank: "Platinum", nick: "Hard Bastard",     sym: "💠", c1: "#dcfff8", c2: "#2fb8a6", mins: [30, 35, 40] },
-  { rank: "Diamond",  nick: "Cashed-Up Bogan",  sym: "💎", c1: "#d9f2ff", c2: "#3a86ff", mins: [47, 54, 62] },
-  { rank: "Elite",    nick: "Absolute Unit",    sym: "⚡", c1: "#ffc2d1", c2: "#e0245e", mins: [71, 81, 92] },
-  { rank: "Champion", nick: "Company Bastard",  sym: "🏆", c1: "#e6d1ff", c2: "#7b3cff", mins: [110, 135, 165] },
-  { rank: "Legend",   nick: "Last Chopper Out", sym: "👑", c1: "#ffffff", c2: "#b06bff", mins: [200] },
+  { rank: "Rookie",   emoji: "🐣", metal: ["#eef0f3", "#a9b1bc", "#5f6874"], c1: "#c2c9d3", c2: "#7b8594", mins: [0] },
+  { rank: "Bronze",   emoji: "🥉", metal: ["#f8cfa6", "#c27a3e", "#6e3a12"], c1: "#f3c49b", c2: "#a8622c", mins: [2, 4, 6] },
+  { rank: "Silver",   emoji: "🥈", metal: ["#ffffff", "#c3cad6", "#6f7a8a"], c1: "#f2f5f9", c2: "#8d99ab", mins: [8, 11, 14] },
+  { rank: "Gold",     emoji: "🥇", metal: ["#fff4b0", "#f2c230", "#9a6200"], c1: "#fff1a8", c2: "#e0a400", mins: [17, 21, 25] },
+  { rank: "Platinum", emoji: "💠", metal: ["#f0fffb", "#9fe3d8", "#2f8a7f"], c1: "#dcfff8", c2: "#2fb8a6", mins: [30, 35, 40] },
+  { rank: "Diamond",  emoji: "💎", metal: ["#eaf8ff", "#6ec1ff", "#1d55c4"], c1: "#d9f2ff", c2: "#3a86ff", mins: [47, 54, 62] },
+  { rank: "Elite",    emoji: "⚡", metal: ["#ffc0cf", "#ff3d6e", "#8c0c32"], c1: "#ffc2d1", c2: "#e0245e", mins: [71, 81, 92] },
+  { rank: "Champion", emoji: "🏆", metal: ["#efe3ff", "#9c6bff", "#40189a"], c1: "#e6d1ff", c2: "#7b3cff", mins: [110, 135, 165] },
+  { rank: "Legend",   emoji: "👑", metal: ["#fff6c2", "#ffcf3a", "#b06f00"], c1: "#ffffff", c2: "#b06bff", mins: [200] },
 ];
+// Badges drawn in each rank's own metal or gem, so the symbol always matches the colour. Shields for the metals
+// (one chevron per level), a cut gem for Diamond, a bolt for Elite, a crowned shield for Champion and a crown for Legend.
+// `sym` is the badge as an <img> for the page; `emoji` stands in wherever only plain text works.
+function rankIcon(rank, level, metal) {
+  const [hi, mid, lo] = metal, ink = lo, id = "g";
+  const grad = `<defs><linearGradient id="${id}" x1="0" y1="0" x2=".35" y2="1"><stop offset="0" stop-color="${hi}"/><stop offset=".5" stop-color="${mid}"/><stop offset="1" stop-color="${lo}"/></linearGradient>
+    <linearGradient id="s" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".75"/><stop offset=".55" stop-color="#fff" stop-opacity="0"/></linearGradient></defs>`;
+  const shield = "M16 1.6 28.4 5.8V15c0 8-5.6 13.2-12.4 15.4C9.2 28.2 3.6 23 3.6 15V5.8Z";
+  const inner = "M16 4.6 25.6 7.9V15c0 6.3-4.3 10.5-9.6 12.3C10.7 25.5 6.4 21.3 6.4 15V7.9Z";
+  const chevrons = n => Array.from({ length: n }, (_, k) => { const y = 10.2 + k * 4.6 + (3 - n) * 2.3; return `<path d="M10.2 ${y}l5.8 3.6 5.8-3.6" fill="none" stroke="${ink}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>`; }).join("");
+  const dots = (n, y) => Array.from({ length: n }, (_, k) => `<circle cx="${16 + (k - (n - 1) / 2) * 4.4}" cy="${y}" r="1.5" fill="#fff"/>`).join("");
+  const shieldWith = body => `<path d="${shield}" fill="url(#${id})" stroke="${ink}" stroke-width="1.2"/><path d="${inner}" fill="url(#s)" stroke="#fff" stroke-opacity=".55" stroke-width=".9"/>${body}`;
+  let art;
+  if (rank === "Rookie") art = `<circle cx="16" cy="16" r="13.6" fill="url(#${id})" stroke="${ink}" stroke-width="1.2"/><circle cx="16" cy="16" r="10.6" fill="url(#s)" stroke="#fff" stroke-opacity=".55" stroke-width=".9"/><path d="M11.4 17.6l4.6-4.4 4.6 4.4" fill="none" stroke="${ink}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>`;
+  else if (rank === "Platinum") art = shieldWith(`<path d="M16 8.6l2.1 4.4 4.8.6-3.5 3.3.9 4.8L16 19.4l-4.3 2.3.9-4.8-3.5-3.3 4.8-.6Z" fill="${ink}"/>${dots(level, 25)}`);
+  else if (rank === "Champion") art = shieldWith(`<path d="M9.6 19.6l-1.4-8.2 4.4 3.4L16 8.8l3.4 6 4.4-3.4-1.4 8.2Z" fill="#ffd84a" stroke="${ink}" stroke-width="1" stroke-linejoin="round"/>${dots(level, 24.4)}`);
+  else if (rank === "Diamond") art = `<path d="M8.6 4h14.8l6.4 8.4L16 29.4 2.2 12.4Z" fill="url(#${id})" stroke="${ink}" stroke-width="1.2" stroke-linejoin="round"/>
+    <path d="M2.2 12.4h27.6M8.6 4l3.6 8.4L16 4l3.8 8.4L23.4 4M12.2 12.4 16 29.4l3.8-17" fill="none" stroke="#fff" stroke-opacity=".7" stroke-width=".9"/><path d="M8.6 4h14.8l6.4 8.4H2.2Z" fill="#fff" fill-opacity=".35"/>${dots(level, 17.6)}`;
+  else if (rank === "Elite") art = `<path d="M16 1.8 28.4 9v14L16 30.2 3.6 23V9Z" fill="url(#${id})" stroke="${ink}" stroke-width="1.2" stroke-linejoin="round"/><path d="M16 4.8 25.8 10.5v11L16 27.2 6.2 21.5v-11Z" fill="url(#s)" stroke="#fff" stroke-opacity=".5" stroke-width=".9"/>
+    <path d="M17.6 5.4 11 15.2h4.4l-1.6 7.2 7-10.4h-4.6Z" fill="#fff" stroke="${ink}" stroke-width="1" stroke-linejoin="round"/>${dots(level, 25.6)}`;
+  else if (rank === "Legend") art = `<path d="M3.4 24.6 1.8 9.4l7.4 5.8L16 4l6.8 11.2 7.4-5.8-1.6 15.2Z" fill="url(#${id})" stroke="${ink}" stroke-width="1.2" stroke-linejoin="round"/>
+    <path d="M4.6 23.6h22.8" stroke="#fff" stroke-opacity=".6" stroke-width="1"/><rect x="3.4" y="24.6" width="25.2" height="4" rx="1.4" fill="url(#${id})" stroke="${ink}" stroke-width="1.1"/>
+    <circle cx="16" cy="17.6" r="3" fill="#b06bff" stroke="#fff" stroke-width="1"/><circle cx="8.6" cy="19.4" r="1.8" fill="#3ad6ff" stroke="#fff" stroke-width=".8"/><circle cx="23.4" cy="19.4" r="1.8" fill="#ff5f8a" stroke="#fff" stroke-width=".8"/>
+    <circle cx="1.8" cy="9.4" r="1.6" fill="#fff6c2" stroke="${ink}" stroke-width=".8"/><circle cx="16" cy="4" r="1.8" fill="#fff6c2" stroke="${ink}" stroke-width=".8"/><circle cx="30.2" cy="9.4" r="1.6" fill="#fff6c2" stroke="${ink}" stroke-width=".8"/>`;
+  else art = shieldWith(chevrons(level));
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">${grad}${art}</svg>`;
+}
+function rankIconFor(r, level, leveled) {
+  const icon = "data:image/svg+xml," + encodeURIComponent(rankIcon(r.rank, leveled ? level : 1, r.metal).replace(/\s*\n\s*/g, " "));
+  return { icon, sym: `<img class="rkic" src="${icon}" alt="">` };
+}
 // Effects build within each rank and step up between ranks.
 const RANK_FX = [
   [["plain", {}]],
@@ -34,7 +65,7 @@ const RANK_FX = [
   [["cosmic", { glow: 26, pulse: 1, halo: ["#ff5f5f", "#ffd84a", "#39ff88", "#3ad6ff", "#b06bff", "#ff5f5f"], orbiters: 10, comet: "#ffffff", sparkles: "#ffffff", sc: 26, burst: "#ffffff" }]],
 ];
 const TIERS = RANKS.flatMap((r, ri) => r.mins.map((min, li) => ({
-  min, sym: r.sym, rank: r.rank, level: r.mins.length > 1 ? ["I", "II", "III"][li] : "", nick: r.nick,
+  min, ...rankIconFor(r, li + 1, r.mins.length > 1), emoji: r.emoji, rank: r.rank, level: r.mins.length > 1 ? ["I", "II", "III"][li] : "",
   name: r.mins.length > 1 ? `${r.rank} ${["I", "II", "III"][li]}` : r.rank,
   c1: r.c1, c2: r.c2, badge: RANK_FX[ri][li][0], fx: RANK_FX[ri][li][1],
 })));
@@ -318,7 +349,7 @@ function tierRing(o, id) {
   return `<defs><linearGradient id="${id}t" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${next.c1}"/><stop offset="1" stop-color="${next.c2}"/></linearGradient></defs>
     <circle cx="120" cy="120" r="${TR}" fill="none" stroke="var(--track)" stroke-width="3" stroke-dasharray="2 4"/>
     <circle class="tier-arc" cx="120" cy="120" r="${TR}" fill="none" stroke="url(#${id}t)" stroke-width="3.5" stroke-linecap="round" stroke-dasharray="${TC}" stroke-dashoffset="${TC * (1 - f)}" transform="rotate(-90 120 120)" style="--tc:${TC}"/>
-    <g class="tier-mark"><circle cx="${hx}" cy="${hy}" r="8" fill="var(--bg)" stroke="${next.c1}" stroke-width="1.5" style="filter:drop-shadow(0 0 4px ${next.c2})"/><text x="${hx}" y="${hy}" text-anchor="middle" dominant-baseline="central" font-size="9">${next.sym}</text></g>`;
+    <g class="tier-mark"><circle cx="${hx}" cy="${hy}" r="8" fill="var(--bg)" stroke="${next.c1}" stroke-width="1.5" style="filter:drop-shadow(0 0 4px ${next.c2})"/><image href="${next.icon}" x="${hx - 6}" y="${hy - 6}" width="12" height="12"/></g>`;
 }
 function setRing(root, frac, { duration = .9, delay = 0 } = {}) {
   root.querySelectorAll(".ring-arc").forEach(el => {
@@ -1020,7 +1051,7 @@ function renderAwards() {
     <div class="section-h"><h2>Badges</h2><span>${got} of ${ACH.length}</span></div>
     <div class="ach-grid">${ACH.map(a => { const at = state.achievements[a.id]; return `<div class="glass ach ${at ? "got" : "locked"}"><div class="e">${a.e}</div><div class="n">${a.n}</div><div class="d">${a.d}</div>${at ? `<div class="d" style="color:var(--gold)">Unlocked ${day(at)}</div>` : ""}</div>`; }).join("")}</div>
     <div class="section-h"><h2>Rank ladder</h2><span>by wins in a row</span></div>
-    <div class="glass card"><div class="ladder">${TIERS.map(tr => `<div class="${best >= tr.min ? "" : "no"}">${tierBadge(tr)}<span>${tr.level !== "II" && tr.level !== "III" ? `<em class="ladder-nick">${esc(tr.nick)}</em> · ` : ""}${tr.min} wins${best >= tr.min ? " ✓" : ""}</span></div>`).join("")}</div></div>`;
+    <div class="glass card"><div class="ladder">${TIERS.map(tr => `<div class="${best >= tr.min ? "" : "no"}">${tierBadge(tr)}<span>${tr.min} wins${best >= tr.min ? " ✓" : ""}</span></div>`).join("")}</div></div>`;
   document.querySelectorAll(".skin[data-skin]").forEach(el => el.onclick = () => {
     if (el.dataset.openSkin) { previewSkin = null; state.skin = el.dataset.skin; save(); render(); }
     else toast(`🔒 Unlocks at ${SKINS.find(k => k.id === el.dataset.skin).need} wins in a row. It's a surprise!`);
@@ -1719,7 +1750,7 @@ function tierBurst(tier) {
   const lvl = tier.idx, durS = Math.min(4, 2 + lvl * .14);
   const cosmic = tier.badge === "cosmic";
   if (tier.min >= 17) fx(`<div class="screenflash" style="--tc:${tier.c2}"></div>`, 900);
-  fx(`<div class="tierburst ${cosmic ? "cosmic" : ""}" style="--tc:${tier.c2};--tdur:${durS}s"><div class="rays"></div><div class="sym">${tier.sym}</div><div class="lbl"><small>New rank · ${tier.min} wins</small>${tier.name}<small class="tb-nick">“${tier.nick}”</small></div></div>`, durS * 1000 + 100);
+  fx(`<div class="tierburst ${cosmic ? "cosmic" : ""}" style="--tc:${tier.c2};--tdur:${durS}s"><div class="rays"></div><div class="sym">${tier.sym}</div><div class="lbl"><small>New rank · ${tier.min} wins</small>${tier.name}</div></div>`, durS * 1000 + 100);
   if (tier.min >= 17) confetti(cosmic ? ["#ffffff", "#ff5fd2", "#3ad6ff", tier.c1, tier.c2] : [tier.c1, tier.c2, "#ffffff"], Math.min(320, 60 + lvl * 18));
   if (!reduced && tier.min >= 47) { const app = $("#app"); app.classList.remove("shake"); void app.offsetWidth; app.classList.add("shake"); setTimeout(() => app.classList.remove("shake"), 600); }
 }
@@ -1759,7 +1790,7 @@ function openReplay(t, runIdx) {
   const show = step => {
     const tr = tierFor(step.streak);
     sh.querySelector("#rpBal").textContent = money(step.bal);
-    sh.querySelector("#rpStreak").textContent = `${tr.sym} ${plural(step.streak, "win")}`;
+    sh.querySelector("#rpStreak").innerHTML = `${tr.sym} ${plural(step.streak, "win")}`;
     const frac = step.type === "loss" || step.type === "end" ? fracFor(step.streak, step.bal || t.start, t.target, s.odds) : fracFor(step.streak, step.bal, t.target, s.odds);
     ring.querySelectorAll("stop")[0].setAttribute("stop-color", tr.c1); ring.querySelectorAll("stop")[1].setAttribute("stop-color", tr.c2);
     setRing(ring, step.type === "loss" ? 0 : frac, { duration: step.type === "loss" ? 1 : .6 / speed });
@@ -2005,7 +2036,7 @@ function renderProfile() {
     <div class="profile-hero">
       ${avatarHTML(132, { badge: true, edit: true })}
       <h1>${glowName(me.display_name)}</h1>
-      <div class="sub" style="margin:0">${tierBadge(b.tier, `${b.tier.name} · ${esc(b.tier.nick)}`, false)} ${b.streak ? `${plural(b.streak, "win")} in a row on ${esc(b.t.name)}` : "No live streak yet"}</div>
+      <div class="sub" style="margin:0">${tierBadge(b.tier, undefined, false)} ${b.streak ? `${plural(b.streak, "win")} in a row on ${esc(b.t.name)}` : "No live streak yet"}</div>
       <div class="sub" id="pWins" style="margin:4px 0 0"></div>
       <button class="btn sec" id="pShare" style="width:auto;margin-top:12px;padding-inline:20px">📤 Share my stats</button>
       <div class="err" id="avErr" style="margin-top:6px"></div>
@@ -2058,7 +2089,7 @@ function renderProfile() {
 // or the clipboard where there isn't one.
 function statsText() {
   const b = liveBest(), s = compute(b.t), lines = [`⚡ ${me.display_name} on ${document.title}`];
-  lines.push(`${b.tier.sym} ${b.tier.name} · ${b.streak ? plural(b.streak, "win") + " in a row" : "no live streak yet"}`);
+  lines.push(`${b.tier.emoji} ${b.tier.name} · ${b.streak ? plural(b.streak, "win") + " in a row" : "no live streak yet"}`);
   lines.push(s.reached ? `🎯 Target hit: ${money(s.balance)}` : `💰 ${money(s.balance)} of ${money(b.t.target)} · ${plural(s.remaining, "win")} to go`);
   const banked = state.trackers.reduce((n, t) => n + compute(t).banked, 0);
   lines.push(`🏆 Best streak ${state.bestStreak || 0}` + (banked > 0 ? ` · 🏦 Banked ${money(banked)}` : ""));
@@ -2241,7 +2272,7 @@ function openFriend(p) {
   const sh = openSheet(`<div class="profile-hero" style="padding-top:6px">
       ${personAvatar(p.display_name, p.avatar_url, p.streak || 0, t, 112, { badge: true })}
       <h1 style="font-size:32px">${glowNameAs(p.display_name, t)}</h1>
-      <div class="sub" style="margin:0">${tierBadge(t, `${t.name} · ${esc(t.nick)}`, false)} ${p.streak ? `${plural(p.streak, "win")} in a row${p.streak_tracker ? ` on ${esc(p.streak_tracker)}` : ""}` : "No live streak right now"}</div>
+      <div class="sub" style="margin:0">${tierBadge(t, undefined, false)} ${p.streak ? `${plural(p.streak, "win")} in a row${p.streak_tracker ? ` on ${esc(p.streak_tracker)}` : ""}` : "No live streak right now"}</div>
     </div>
     ${p.best_streak !== undefined ? `<div class="kv" style="margin-top:14px">
       <div><div class="k">Live streak</div><div class="v">${p.streak || 0}</div></div>
