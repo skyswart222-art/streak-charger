@@ -1809,8 +1809,8 @@ function renderMe() {
   const btn = $("#meBtn"); if (!btn) return;
   btn.innerHTML = avatarHTML(38) + `<i class="sync-dot ${syncState}" title="${syncState === "saved" ? "Synced" : syncState}"></i>`;
   btn.classList.toggle("on", state.page === "profile");
-  // A count on the Friends tab when someone has sent you a request.
-  const fb = $('#nav [data-nav="friends"]'), n = incomingCount();
+  // A count on the Friends tab for friend requests and people who joined since you last looked.
+  const fb = $('#nav [data-nav="friends"]'), n = incomingCount() + newJoinerCount();
   if (fb) { fb.classList.add("has-dot"); fb.dataset.count = n || ""; }
   const cb = $('#nav [data-nav="chat"]'), u = unreadCount();
   if (cb) { cb.classList.add("has-dot"); cb.dataset.count = u > 99 ? "99+" : u || ""; }
@@ -2065,11 +2065,39 @@ function renderSoon(id) {
 /* ---------- Friends ----------
    The list comes from the database, which also works out everyone's streak from their logged bets. */
 let friends = null, friendsAt = 0, friendsErr = "", fQuery = "", fResults = null, fTimer = null, fBusy = new Set();
+// New joiners: the latest people to sign up, with a count on Friends for any you haven't seen yet.
+let joiners = null, joinersAt = 0, friendsTab = "mine", joinersSeenShown = 0;
+const joinersKey = () => "pd.joinersSeen." + Cloud.user.id;
+function joinersSeen() {
+  try {
+    const v = Number(localStorage.getItem(joinersKey()));
+    if (v) return v;
+    // First time: everyone already here counts as seen, so nobody gets a backlog.
+    localStorage.setItem(joinersKey(), String(Date.now())); return Date.now();
+  } catch (x) { return Date.now(); }
+}
+const joinedAt = p => Date.parse(p.joined_at) || 0;
+const newJoinerCount = () => (joiners || []).filter(p => joinedAt(p) > joinersSeen() && !relationOf(p.id)).length;
+async function loadJoiners(force) {
+  if (!Cloud.user || localMode || (!force && Date.now() - joinersAt < 60000)) return;
+  joinersAt = Date.now();
+  try { joiners = await Cloud.newJoiners(); } catch (x) { if (!joiners) joiners = []; }
+  if (!state || scrim) return;
+  renderMe(); if (state.page === "friends") renderFriends();
+}
+function markJoinersSeen() {
+  const top = Math.max(0, ...(joiners || []).map(joinedAt));
+  if (top > joinersSeen()) try { localStorage.setItem(joinersKey(), String(top)); } catch (x) {}
+}
+function agoShort(ts) {
+  const m = Math.max(0, Math.round((Date.now() - ts) / 60000));
+  return m < 1 ? "just now" : m < 60 ? m + "m ago" : m < 1440 ? Math.round(m / 60) + "h ago" : Math.round(m / 1440) + "d ago";
+}
 const tierOf = p => TIERS[Math.min(p.tier_idx || 0, TIERS.length - 1)] || TIERS[0];
 const incomingCount = () => (friends || []).filter(f => f.status === "pending" && f.incoming).length;
 async function loadFriends(force) {
   if (!Cloud.user || localMode || (!force && Date.now() - friendsAt < 15000)) return;
-  friendsAt = Date.now();
+  friendsAt = Date.now(); loadJoiners();
   try { friends = await Cloud.myFriends(); friendsErr = ""; }
   catch (x) { friendsErr = Cloud.nice(x); }
   if (!state || scrim) return;
@@ -2114,7 +2142,8 @@ function renderFriends() {
   const searching = fQuery.trim().length >= 2;
   $("#view").innerHTML = `
     <div class="head" style="padding-top:18px"><div><div class="eyebrow">${friends ? plural(mine.length, "friend") : "Friends"}</div><h1>Friends</h1></div></div>
-    <div class="field fsearch"><input id="fSearch" type="search" placeholder="Find people by display name" autocomplete="off" autocapitalize="off" spellcheck="false" value="${esc(fQuery)}"></div>
+    <div class="seg subnav ftabs"><button data-ftab="mine" class="${friendsTab === "mine" ? "on" : ""}">Your friends</button><button data-ftab="new" class="has-dot ${friendsTab === "new" ? "on" : ""}" data-count="${friendsTab === "new" ? "" : newJoinerCount() || ""}">New joiners</button></div>
+    ${friendsTab === "new" ? joinersHTML() : `<div class="field fsearch"><input id="fSearch" type="search" placeholder="Find people by display name" autocomplete="off" autocapitalize="off" spellcheck="false" value="${esc(fQuery)}"></div>
     <div id="fResults">${searching ? resultsHTML() : ""}</div>
     ${friendsErr ? `<div class="glass card"><div class="err" style="margin:0">${esc(friendsErr)}</div></div>` : ""}
     ${!friends && !friendsErr ? `<div class="glass card"><div class="cap" style="margin:0">Loading your friends…</div></div>` : ""}
@@ -2125,7 +2154,8 @@ function renderFriends() {
         : `<div class="glass card fempty"><div class="soon-ic">👥</div><p>No friends yet. Search for someone's display name above to send them a request.</p>
            <div class="cap" style="margin:0">Your display name is <b>${esc(me.display_name)}</b>. Share it so friends can find you.</div></div>`}` : ""}
     ${out.length ? `<div class="section-h"><h2>Sent</h2><span>Waiting for them to accept</span></div>
-      <div class="glass card flist">${out.map(p => friendRow(p, `<button class="btn sm sec" data-fcancel="${p.id}">Cancel</button>`)).join("")}</div>` : ""}`;
+      <div class="glass card flist">${out.map(p => friendRow(p, `<button class="btn sm sec" data-fcancel="${p.id}">Cancel</button>`)).join("")}</div>` : ""}`}`;
+  if (friendsTab === "new") { loadJoiners(); markJoinersSeen(); renderMe(); return; }
   const inp = $("#fSearch");
   inp.oninput = () => {
     fQuery = inp.value; clearTimeout(fTimer);
@@ -2138,6 +2168,21 @@ function renderFriends() {
     }, 300);
   };
 }
+function joinersHTML() {
+  if (!joiners) return `<div class="glass card"><div class="cap" style="margin:0">Loading new joiners…</div></div>`;
+  if (!joiners.length) return `<div class="glass card fempty"><div class="soon-ic">🌱</div><p>Nobody new yet. People who join Pipe Dream will show up here.</p></div>`;
+  const seen = joinersSeenShown;
+  return `<div class="section-h"><h2>Just joined</h2><span>Newest first</span></div>
+    <div class="glass card flist">${joiners.map(p => friendRow({ ...p, best_streak: p.streak },
+      `${joinedAt(p) > seen ? `<span class="jnew">New</span>` : ""}<span class="jwhen">${agoShort(joinedAt(p))}</span>${actionFor(p)}`)).join("")}</div>`;
+}
+document.addEventListener("click", e => {
+  const b = e.target.closest("[data-ftab]"); if (!b || !state) return;
+  friendsTab = b.dataset.ftab;
+  // Remember what was new when the list opened, so the "New" tags stay put while you browse it.
+  if (friendsTab === "new") joinersSeenShown = joinersSeen();
+  renderFriends();
+});
 function resultsHTML(pending) {
   if (pending || !fResults) return `<div class="glass card flist"><div class="cap" style="margin:0">Searching…</div></div>`;
   if (!fResults.length) return `<div class="glass card flist"><div class="cap" style="margin:0">Nobody called “${esc(fQuery.trim())}”. Check the spelling.</div></div>`;
@@ -2225,13 +2270,19 @@ function liveBarHTML(l, p, mini, place, noBal) {
   const [c1, c2] = PLACE_BAR[place] || ["#7dffb0", "#22c3ff"];
   const n = Math.max(1, (l.streak || 0) + (l.to_go || 0)), tr = barTrackHTML(mini ? "" : BAR_STYLE, livePct(l), n, p.id, l.streak || 0);
   return `<span class="lbar ${mini ? "mini" : ""} ${tr.v ? "v-" + tr.v : ""} ${l.pending ? "live" : ""}" style="--b1:${c1};--b2:${c2};--n:${tr.n}" title="${livePct(l)}% of the way to ${moneyShort(l.target)}">
-    ${tr.html}${place === 1 && !mini ? embersHTML(tr.pct, tr.v) : ""}
+    ${tr.html}${place >= 1 && place <= 3 && !mini ? embersHTML(tr.pct, tr.v, place) : ""}
     ${mini ? "" : `<span class="lbar-cap">${l.pending ? `<em>⏳ Bet in play</em>` : noBal ? "<span></span>" : `<span>${moneyShort(l.balance)} → ${moneyShort(l.target)}</span>`}<span>${liveGoal(l)}</span></span>`}</span>`;
 }
-// First place only: a few faint embers drifting off the end of the bar.
-const EMBERS = [[-10, -14, 0], [6, -18, .7], [-4, -11, 1.5], [12, -9, 2.2], [-14, -6, 2.9], [3, -16, 3.6]];
-function embersHTML(pct, v) {
-  return `<span class="lbar-embers" style="left:calc(${Math.max(pct, 3)}% - ${v === "seg" ? 4 : 1}px)" aria-hidden="true">${EMBERS.map(([x, y, d]) => `<b style="--x:${x}px;--y:${y}px;--d:${d}s"></b>`).join("")}</span>`;
+// Top three only: embers drifting off the end of the bar, strongest for first place.
+const EMBER_LEVEL = { 1: { n: 16, rise: 26, size: 3 }, 2: { n: 10, rise: 21, size: 2.5 }, 3: { n: 6, rise: 16, size: 2 } };
+function embersHTML(pct, v, place) {
+  const L = EMBER_LEVEL[place], dur = 4.2;
+  const bits = Array.from({ length: L.n }, (_, k) => {
+    // Spread evenly in time, fanned up and out with a fixed jitter so rows don't redraw differently.
+    const j = Math.sin(k * 12.9898 + place * 78.233) * 43758.5453 % 1, x = Math.round(j * L.rise * .7), y = -Math.round(L.rise * (.45 + Math.abs(j) * .55));
+    return `<b style="--x:${x}px;--y:${y}px;--d:${(k * dur / L.n).toFixed(2)}s"></b>`;
+  }).join("");
+  return `<span class="lbar-embers p${place}" style="left:calc(${Math.max(pct, 3)}% - ${v === "seg" ? 4 : 1}px);--es:${L.size}px" aria-hidden="true">${bits}</span>`;
 }
 // Second, smaller bar: progress from this tier to the next one, so long trackers still move with every win.
 function tierBarHTML(p) {
@@ -2412,12 +2463,22 @@ function boxSparks(el, t) {
   };
   requestAnimationFrame(frame);
 }
+// A running bet's risk, in three bands: semi risky, risky and super risky.
+const RISK_BANDS = [{ min: 1.2, lvl: 1, name: "Semi risky", c: "#ffd23f", sym: "🟡" }, { min: 1.6, lvl: 2, name: "Risky", c: "#ff8a3c", sym: "🟠" }, { min: 2, lvl: 3, name: "Super risky", c: "#ff2a6d", sym: "💀" }];
+function riskBand(l) {
+  if (!l || !l.pending || !(l.odds >= RISK_BANDS[0].min)) return null;
+  let r = null; RISK_BANDS.forEach(b => { if (l.odds >= b.min) r = b; }); return r;
+}
+function riskBadgeHTML(r, odds) {
+  return `<span class="rk-tag" title="${r.name} bet">${r.sym} ${r.name}<small>@ ${odds2(odds)}</small></span>`;
+}
 function boardRow(p) {
   const t = tierOf(p);
   const sub = boardMetric === "streak" ? (p.streak ? `${t.sym} ${t.name}${p.streak_tracker ? ` · on ${esc(p.streak_tracker)}` : ""}` : `No live streak · best ${p.best_streak || 0}`)
     : boardMetric === "best" ? `Live now: ${t.sym} ${p.streak || 0}` : `${t.sym} ${p.streak || 0} live · best ${p.best_streak || 0}`;
   const place = p.rank <= 3 && p.score > 0 ? p.rank : 0;
-  return `<div class="frow lb-row ${place ? "place" + place : ""} ${p.is_me ? "me" : ""}" data-fid="${p.id}">
+  const rk = riskBand(p.live);
+  return `<div class="frow lb-row ${place ? "place" + place : ""} ${p.is_me ? "me" : ""} ${rk ? `risk rk${rk.lvl}` : ""}" data-fid="${p.id}"${rk ? ` style="--rk:${rk.c}"` : ""}>${rk ? riskBadgeHTML(rk, p.live.odds) : ""}
     <span class="lb-rank">${place ? MEDALS[place - 1] : p.rank}</span>
     <button class="fwho" data-fopen="${p.id}">${personAvatar(p.display_name, p.avatar_url, p.streak, t, 42, { badge: true })}
       <span class="fname"><span class="lb-namerow"><b>${glowNameAs(p.display_name, t)}${p.is_me ? ` <em class="lb-you">You</em>` : ""}</b>${p.live ? `<span class="lb-bal" title="Tracker balance and target"><b>${moneyTiny(p.live.balance)}</b><i>→</i>${moneyTiny(p.live.target)}</span>` : ""}</span><small>${sub}</small>${liveBarHTML(p.live, p, false, place, true)}${p.live ? tierBarHTML(p) : ""}</span></button>
