@@ -2042,7 +2042,8 @@ function importData(src, what) {
 function renderProfile() {
   if (localMode) {
     $("#view").innerHTML = `<div class="head" style="padding-top:18px"><div><div class="eyebrow">Profile</div><h1>On this device only</h1></div></div>
-      <div class="glass card"><div class="cap">Accounts, profiles and syncing switch on once config.js has your Supabase keys.</div><button class="btn sec" data-nav="awards">🎨 Themes and awards</button></div>`;
+      <div class="glass card"><div class="cap">Accounts, profiles and syncing switch on once config.js has your Supabase keys.</div><button class="btn sec" data-nav="awards">🎨 Themes and awards</button></div>
+      <div class="appver">skyversion 1.1</div>`;
     return;
   }
   const b = liveBest(), device = notYetImported(deviceState());
@@ -2068,7 +2069,8 @@ function renderProfile() {
     <div class="glass card"><button class="btn sec" data-nav="awards">🎨 Themes and awards</button></div>
     <div class="glass card"><h3>Your trackers</h3><div class="cap">Deleting a tracker removes it and all its bets for good.</div>
       <div class="ptrk">${state.trackers.map(t => `<div class="ptrk-row"><span class="ptrk-dot" style="background:${esc(t.accent)}"></span><span class="ptrk-name"><b>${esc(t.name)}</b><small>${plural(t.bets.length, "bet")}${t.shared === false ? " · 🔒 private" : ""}</small></span><button class="ptrk-del" data-pdel="${t.id}" aria-label="Delete ${esc(t.name)}">🗑 Delete</button></div>`).join("")}</div></div>
-    <button class="btn warn" id="signOut" style="margin-top:14px">Log out</button>`;
+    <button class="btn warn" id="signOut" style="margin-top:14px">Log out</button>
+    <div class="appver">skyversion 1.1</div>`;
   $("#avFile").onchange = async e => {
     const f = e.target.files && e.target.files[0]; e.target.value = ""; if (!f) return;
     $("#avErr").textContent = ""; $(".profile-hero .avatar").classList.add("busy");

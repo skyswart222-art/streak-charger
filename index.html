@@ -1084,6 +1084,10 @@ canvas.arc-sparks { position: fixed; inset: 0; width: 100%; height: 100%; z-inde
 .avatar img.rkic, img.rkic { width: 1.2em; height: 1.2em; border-radius: 0; object-fit: contain; display: inline-block; }
 .tierburst .sym img.rkic { width: 1em; height: 1em; }
 
+/* skyversion: bottom right of the splash, and under Log out on the profile page */
+.sp-ver { position: absolute; right: max(14px, env(safe-area-inset-right, 0px)); bottom: calc(12px + env(safe-area-inset-bottom, 0px)); font-family: var(--body); font-size: 11px; font-weight: 600; letter-spacing: .06em; color: rgba(255,255,255,.42); opacity: 0; animation: sp-fade .6s ease-out .6s forwards; }
+.appver { margin: 14px 0 4px; text-align: center; font-size: 12px; font-weight: 600; letter-spacing: .06em; color: var(--muted); }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
   .stamp, .x-mark, .glass-fx .hg, .glass-fx .rk, .tierburst { animation: fadeQuick 1.2s forwards !important; }
@@ -1101,6 +1105,7 @@ canvas.arc-sparks { position: fixed; inset: 0; width: 100%; height: 100%; z-inde
   </div>
   <div class="sp-word"><span>Pipe</span><span>Dream</span></div>
   <div class="sp-tag">Bet smarter · Compound the streak</div>
+  <div class="sp-ver">skyversion 1.1</div>
 </div>
 <div class="bgfx" aria-hidden="true"></div>
 <div class="app" id="app">
