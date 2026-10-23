@@ -912,6 +912,32 @@ canvas.arc-sparks { position: fixed; inset: 0; width: 100%; height: 100%; z-inde
 .welcome-small { margin: 0; font-size: 12px; color: var(--muted); }
 .welcome .btn { margin-top: 4px; }
 
+/* Progress bar styles */
+.lbar.v-seg .lbar-track { height: 11px; border-radius: 4px; box-shadow: none; -webkit-mask: repeating-linear-gradient(90deg, #000 0 calc(100% / var(--n) - 3px), transparent 0 calc(100% / var(--n))); mask: repeating-linear-gradient(90deg, #000 0 calc(100% / var(--n) - 3px), transparent 0 calc(100% / var(--n))); }
+.lbar.v-seg .lbar-track i { border-radius: 0; }
+.lbar.v-seg .lbar-track i::before { background: linear-gradient(180deg, rgba(255,255,255,.45), transparent 55%); animation: none; }
+.lbar.v-seg .lbar-spark { display: none; }
+
+.lbar.v-tube .lbar-track { height: 14px; overflow: visible; border: 1px solid color-mix(in srgb, var(--fg) 14%, transparent); background: linear-gradient(180deg, rgba(0,0,0,.35), color-mix(in srgb, var(--fg) 6%, transparent)), repeating-linear-gradient(90deg, transparent 0 calc(100% / var(--n) - 1px), color-mix(in srgb, var(--fg) 18%, transparent) 0 calc(100% / var(--n))); box-shadow: inset 0 2px 4px rgba(0,0,0,.5); }
+.lbar.v-tube .lbar-track i { inset: 1px auto 1px 1px; box-shadow: 0 0 14px color-mix(in srgb, var(--b1) 70%, transparent); }
+.lbar.v-tube .lbar-track i::before { inset: 1px 6px auto 6px; height: 40%; background: linear-gradient(180deg, rgba(255,255,255,.75), rgba(255,255,255,.1)); animation: none; }
+.lbar.v-tube .lbar-spark { width: 18px; height: 18px; margin-top: -9px; right: -9px; }
+
+.lbar.v-nodes .lbar-track { height: 4px; overflow: visible; margin: 7px 6px; box-shadow: none; }
+.lbar.v-nodes .lbar-spark { display: none; }
+.lnodes { position: absolute; inset: 0; display: flex; justify-content: space-between; align-items: center; pointer-events: none; }
+.lnodes u { width: 12px; height: 12px; margin: 0 -6px; border-radius: 50%; background: var(--sheet, #1c1f26); border: 2px solid color-mix(in srgb, var(--fg) 22%, transparent); box-sizing: border-box; }
+.lnodes u.on { background: var(--b1); border-color: #fff; box-shadow: 0 0 8px var(--b1); }
+.lnodes u.next { border-color: var(--b1); animation: lnode 1s ease-in-out infinite; }
+.lnodes u:last-child { width: 16px; height: 16px; margin-right: -8px; border-radius: 4px; transform: rotate(45deg); border-color: #f5c518; }
+@keyframes lnode { 50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--b1) 35%, transparent); } }
+
+.lbar.v-meter .lbar-track { height: 20px; border-radius: 8px; padding: 2px; box-sizing: border-box; border: 1.5px solid color-mix(in srgb, var(--b1) 45%, transparent); background: color-mix(in srgb, var(--fg) 6%, transparent); box-shadow: none; }
+.lbar.v-meter .lbar-track i { inset: 2px auto 2px 2px; border-radius: 5px; min-width: 34px; }
+.lbar.v-meter .lbar-track i s { position: absolute; z-index: 1; font-style: normal; right: 6px; top: 50%; transform: translateY(-50%); text-decoration: none; font-size: 11px; font-weight: 800; color: #0d0f13; line-height: 1; }
+.lbar.v-meter .lbar-spark { display: none; }
+@media (prefers-reduced-motion: reduce) { .lnodes u.next { animation: none; } }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
   .stamp, .x-mark, .glass-fx .hg, .glass-fx .rk, .tierburst { animation: fadeQuick 1.2s forwards !important; }

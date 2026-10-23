@@ -2210,11 +2210,14 @@ const livePct = l => Math.max(0, Math.min(100, Math.round((l.frac || 0) * 100)))
 const liveGoal = l => l.to_go === 0 ? "Target hit 🎯" : l.to_go == null ? "" : `${plural(l.to_go, "win")} to go`;
 // Gold, silver and bronze for the top three; everyone else charges in the app's colours.
 const PLACE_BAR = { 1: ["#ffe27a", "#f5a300"], 2: ["#f4f7fb", "#9aa6b5"], 3: ["#ffc08a", "#b8662e"] };
+const BAR_STYLE = (() => { try { return localStorage.getItem("pd.barStyle") || ""; } catch (x) { return ""; } })();
 function liveBarHTML(l, p, mini, place, noBal) {
   if (!l) return "";
   const [c1, c2] = PLACE_BAR[place] || ["#7dffb0", "#22c3ff"];
-  return `<span class="lbar ${mini ? "mini" : ""} ${l.pending ? "live" : ""}" style="--b1:${c1};--b2:${c2}" title="${livePct(l)}% of the way to ${moneyShort(l.target)}">
-    <span class="lbar-track"><i style="width:${Math.max(livePct(l), 3)}%" data-to="${Math.max(livePct(l), 3)}" data-lid="${p.id}"><b class="lbar-spark"></b></i></span>
+  const n = Math.max(1, (l.streak || 0) + (l.to_go || 0)), v = mini ? "" : BAR_STYLE;
+  const nodes = v === "nodes" ? `<span class="lnodes">${Array.from({ length: n + 1 }, (_, k) => `<u class="${k <= (l.streak || 0) ? "on" : ""} ${k === (l.streak || 0) + 1 && l.pending ? "next" : ""}"></u>`).join("")}</span>` : "";
+  return `<span class="lbar ${mini ? "mini" : ""} ${v ? "v-" + v : ""} ${l.pending ? "live" : ""}" style="--b1:${c1};--b2:${c2};--n:${n}" title="${livePct(l)}% of the way to ${moneyShort(l.target)}">
+    <span class="lbar-track"><i style="width:${Math.max(livePct(l), 3)}%" data-to="${Math.max(livePct(l), 3)}" data-lid="${p.id}"><b class="lbar-spark"></b>${v === "meter" ? `<s>${livePct(l)}%</s>` : ""}</i>${nodes}</span>
     ${mini ? "" : `<span class="lbar-cap">${l.pending ? `<em>⏳ Bet in play</em>` : noBal ? "<span></span>" : `<span>${moneyShort(l.balance)} → ${moneyShort(l.target)}</span>`}<span>${liveGoal(l)}</span></span>`}</span>`;
 }
 function liveCardHTML(l, p) {
