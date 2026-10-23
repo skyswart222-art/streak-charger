@@ -984,6 +984,45 @@ canvas.arc-sparks { position: fixed; inset: 0; width: 100%; height: 100%; z-inde
 .jwhen { font-size: 11px; color: var(--muted); white-space: nowrap; }
 .frow .fact:has(.jwhen) { display: flex; align-items: center; gap: 8px; }
 
+/* ---------- Launch splash: the logo charges up while the account loads ---------- */
+#splash { position: fixed; inset: 0; z-index: 9999; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px;
+  background: radial-gradient(120% 60% at 50% 62%, #3a1530 0%, #1a0d1c 38%, #0c080e 72%); color: #fff; pointer-events: none; overflow: hidden;
+  padding: env(safe-area-inset-top, 0px) 16px env(safe-area-inset-bottom, 0px); transition: opacity .5s ease, transform .5s ease; }
+#splash.gone { opacity: 0; transform: scale(1.04); }
+.sp-glow { position: absolute; left: 50%; top: 46%; width: 340px; height: 340px; margin: -170px 0 0 -170px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(255,138,42,.32) 0%, rgba(255,90,60,.12) 40%, transparent 70%); animation: sp-breathe 2.4s ease-in-out infinite; }
+.sp-mark { position: relative; width: 176px; height: 176px; animation: sp-pop .7s cubic-bezier(.2,1.3,.4,1) both; }
+.sp-mark img { position: absolute; inset: 22px; width: 132px; height: 132px; border-radius: 50%; box-shadow: 0 0 0 1px rgba(255,255,255,.06), 0 10px 40px rgba(0,0,0,.6); }
+.sp-ring { position: absolute; inset: 0; width: 176px; height: 176px; transform: rotate(-90deg); overflow: visible; }
+.sp-ring circle { fill: none; stroke-width: 5; stroke-linecap: round; }
+.sp-track { stroke: rgba(255,255,255,.08); }
+.sp-fill { stroke: url(#spGrad); stroke-dasharray: 100 100; stroke-dashoffset: 100; filter: drop-shadow(0 0 6px rgba(255,150,50,.75));
+  animation: sp-charge 1.2s cubic-bezier(.45,.05,.3,1) .15s forwards; }
+#splash.done .sp-fill { animation: sp-full .35s ease-out forwards; }
+#splash.done .sp-mark { animation: sp-flash .45s ease-out; }
+.sp-word { position: relative; font-family: var(--display); font-weight: 900; font-size: 44px; line-height: 1; letter-spacing: .08em; text-transform: uppercase; display: flex; gap: .28em; }
+.sp-word span { display: inline-block; opacity: 0; transform: translateY(10px); animation: sp-up .5s ease-out forwards; }
+.sp-word span:nth-child(1) { animation-delay: .25s; }
+.sp-word span:nth-child(2) { animation-delay: .38s; background: linear-gradient(90deg, #ffd23f, #ff8a2a 55%, #ff4f6d); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.sp-tag { position: relative; font-family: var(--body); font-size: 12px; font-weight: 500; letter-spacing: .22em; text-transform: uppercase; color: rgba(255,255,255,.58);
+  opacity: 0; animation: sp-fade .6s ease-out .6s forwards; }
+.sp-embers { position: absolute; left: 50%; top: 46%; width: 0; height: 0; }
+.sp-embers i { position: absolute; width: 3px; height: 3px; border-radius: 50%; background: #ffb347; box-shadow: 0 0 6px #ff8a2a; opacity: 0;
+  animation: sp-rise 2.2s ease-out infinite; }
+@keyframes sp-charge { to { stroke-dashoffset: 22; } }
+@keyframes sp-full { from { stroke-dashoffset: 22; } to { stroke-dashoffset: 0; } }
+@keyframes sp-pop { from { opacity: 0; transform: scale(.82); } to { opacity: 1; transform: none; } }
+@keyframes sp-flash { 50% { transform: scale(1.05); filter: brightness(1.25); } }
+@keyframes sp-up { to { opacity: 1; transform: none; } }
+@keyframes sp-fade { to { opacity: 1; } }
+@keyframes sp-breathe { 50% { transform: scale(1.08); opacity: .8; } }
+@keyframes sp-rise { 0% { opacity: 0; transform: translate(0, 0); } 15% { opacity: 1; } 100% { opacity: 0; transform: translate(var(--x), var(--y)); } }
+@media (prefers-reduced-motion: reduce) {
+  #splash *, #splash.done * { animation: none !important; opacity: 1 !important; transform: none !important; }
+  .sp-fill { stroke-dashoffset: 0; }
+  .sp-embers { display: none; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
   .stamp, .x-mark, .glass-fx .hg, .glass-fx .rk, .tierburst { animation: fadeQuick 1.2s forwards !important; }
@@ -992,7 +1031,16 @@ canvas.arc-sparks { position: fixed; inset: 0; width: 100%; height: 100%; z-inde
 </style>
 </head>
 <body>
-
+<div id="splash" aria-hidden="true">
+  <div class="sp-glow"></div>
+  <div class="sp-embers"><i style="left:84px;top:26px;--x:29px;--y:-60px;animation-delay:0.2s"></i><i style="left:60px;top:65px;--x:39px;--y:-125px;animation-delay:0.37s"></i><i style="left:20px;top:86px;--x:7px;--y:-64px;animation-delay:0.54s"></i><i style="left:-26px;top:84px;--x:-14px;--y:-99px;animation-delay:0.71s"></i><i style="left:-65px;top:60px;--x:-30px;--y:-86px;animation-delay:0.88s"></i><i style="left:-86px;top:20px;--x:-43px;--y:-92px;animation-delay:1.05s"></i><i style="left:-84px;top:-26px;--x:-47px;--y:-104px;animation-delay:1.22s"></i><i style="left:-60px;top:-65px;--x:-24px;--y:-72px;animation-delay:1.39s"></i><i style="left:-20px;top:-86px;--x:-9px;--y:-83px;animation-delay:1.56s"></i><i style="left:26px;top:-84px;--x:14px;--y:-98px;animation-delay:1.73s"></i><i style="left:65px;top:-60px;--x:43px;--y:-128px;animation-delay:1.9s"></i><i style="left:86px;top:-20px;--x:53px;--y:-117px;animation-delay:2.07s"></i></div>
+  <div class="sp-mark">
+    <svg class="sp-ring" viewBox="0 0 176 176"><defs><linearGradient id="spGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffd23f"/><stop offset=".55" stop-color="#ff8a2a"/><stop offset="1" stop-color="#ff4f6d"/></linearGradient></defs><circle class="sp-track" cx="88" cy="88" r="83"/><circle class="sp-fill" cx="88" cy="88" r="83" pathLength="100"/></svg>
+    <img src="icon-512.png" alt="">
+  </div>
+  <div class="sp-word"><span>Pipe</span><span>Dream</span></div>
+  <div class="sp-tag">Bet smarter · Compound the streak</div>
+</div>
 <div class="bgfx" aria-hidden="true"></div>
 <div class="app" id="app">
   <header class="topbar"><nav class="tabs" id="tabs" aria-label="Trackers"></nav><button class="me" id="meBtn" aria-label="Profile and settings"></button></header>

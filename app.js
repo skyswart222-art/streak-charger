@@ -1825,7 +1825,7 @@ function renderMe() {
 /* ---------- Signed out ---------- */
 function signedOut(on) { document.body.classList.toggle("signed-out", on); }
 function renderAuth(mode = "login", note = "") {
-  stopFx(); closeSheet(); signedOut(true);
+  stopFx(); closeSheet(); signedOut(true); hideSplash();
   try { const ui = JSON.parse(localStorage.getItem(UI_KEY) || "{}"); document.documentElement.dataset.skin = ui.skin || "dark"; } catch (e) {}
   setAccent(ACCENTS[0]);
   const signup = mode === "signup";
@@ -1891,13 +1891,22 @@ function openNewPassword() {
   };
 }
 function renderSetupNeeded() {
-  signedOut(true);
+  signedOut(true); hideSplash();
   $("#view").innerHTML = `<div class="auth"><h1>Almost ready</h1>
     <div class="glass card"><p style="margin-top:0">This copy of Pipe Dream isn't connected to a database yet, so accounts and syncing are off.</p>
     <p class="cap">Open <b>config.js</b> and paste in your Supabase Project URL and anon key. The setup guide (SETUP.md) walks you through it.</p>
     <button class="btn sec" id="useLocal">Use it on this device for now</button></div></div>`;
   $("#useLocal").onclick = () => { localMode = true; state = deviceState() || freshState(); startApp(); };
 }
+
+/* ---------- Launch splash ----------
+   Shown from the page itself so it appears straight away; once the first screen is ready the ring finishes charging and it fades out. */
+const SPLASH_MIN = 1600;
+function hideSplash() {
+  const s = document.getElementById("splash"); if (!s || s.dataset.going) return; s.dataset.going = "1";
+  setTimeout(() => { s.classList.add("done"); setTimeout(() => { s.classList.add("gone"); setTimeout(() => s.remove(), 520); }, 380); }, Math.max(0, SPLASH_MIN - performance.now()));
+}
+setTimeout(hideSplash, 9000);
 
 /* ---------- Signed in ---------- */
 function loading(msg) { signedOut(true); $("#view").innerHTML = `<div class="auth"><div class="auth-logo spin-slow">${ringSVG({ tier: TIERS[3], frac: .3, total: 23, streak: 0, reached: false })}</div><p class="sub" style="text-align:center">${msg}</p></div>`; }
@@ -1924,7 +1933,7 @@ async function startSignedIn() {
   starting = false;
 }
 function startApp() {
-  signedOut(false);
+  signedOut(false); hideSplash();
   evalAchievements(); save(); render();
   // A different account may have just logged in on this device, so start the friends list afresh.
   friends = null; friendsErr = ""; fQuery = ""; fResults = null; boards = {};
