@@ -2213,27 +2213,34 @@ const PLACE_BAR = { 1: ["#ffe27a", "#f5a300"], 2: ["#f4f7fb", "#9aa6b5"], 3: ["#
 // Leaderboard bars are drawn as one block per win (Sky picked "Blocks").
 const BAR_STYLE = "seg";
 // One bar track in the chosen style. Blocks fall back to a smooth bar when there are too many wins to draw.
-function barTrackHTML(v, pct, n, lid) {
+function barTrackHTML(v, pct, n, lid, done) {
   // Too many wins to draw one block or dot each: fall back to a smooth tube with no ticks.
   if (n > 20) { if (v === "seg") v = "tube"; n = 1; }
-  return { v, n, html: `<span class="lbar-track"><i style="width:${Math.max(pct, 3)}%" data-to="${Math.max(pct, 3)}"${lid ? ` data-lid="${lid}"` : ""}><b class="lbar-spark"></b></i></span>` };
+  // Blocks fill whole blocks, so the lit edge sits exactly on a block's end.
+  if (v === "seg" && done != null) pct = Math.round(Math.min(done, n) / n * 10000) / 100;
+  return { v, n, pct, html: `<span class="lbar-track"><i style="width:${Math.max(pct, 3)}%" data-to="${Math.max(pct, 3)}"${lid ? ` data-lid="${lid}"` : ""}><b class="lbar-spark"></b></i></span>` };
 }
 function liveBarHTML(l, p, mini, place, noBal) {
   if (!l) return "";
   const [c1, c2] = PLACE_BAR[place] || ["#7dffb0", "#22c3ff"];
-  const n = Math.max(1, (l.streak || 0) + (l.to_go || 0)), tr = barTrackHTML(mini ? "" : BAR_STYLE, livePct(l), n, p.id);
+  const n = Math.max(1, (l.streak || 0) + (l.to_go || 0)), tr = barTrackHTML(mini ? "" : BAR_STYLE, livePct(l), n, p.id, l.streak || 0);
   return `<span class="lbar ${mini ? "mini" : ""} ${tr.v ? "v-" + tr.v : ""} ${l.pending ? "live" : ""}" style="--b1:${c1};--b2:${c2};--n:${tr.n}" title="${livePct(l)}% of the way to ${moneyShort(l.target)}">
-    ${tr.html}
+    ${tr.html}${place === 1 && !mini ? embersHTML(tr.pct, tr.v) : ""}
     ${mini ? "" : `<span class="lbar-cap">${l.pending ? `<em>⏳ Bet in play</em>` : noBal ? "<span></span>" : `<span>${moneyShort(l.balance)} → ${moneyShort(l.target)}</span>`}<span>${liveGoal(l)}</span></span>`}</span>`;
+}
+// First place only: a few faint embers drifting off the end of the bar.
+const EMBERS = [[-10, -14, 0], [6, -18, .7], [-4, -11, 1.5], [12, -9, 2.2], [-14, -6, 2.9], [3, -16, 3.6]];
+function embersHTML(pct, v) {
+  return `<span class="lbar-embers" style="left:calc(${Math.max(pct, 3)}% - ${v === "seg" ? 4 : 1}px)" aria-hidden="true">${EMBERS.map(([x, y, d]) => `<b style="--x:${x}px;--y:${y}px;--d:${d}s"></b>`).join("")}</span>`;
 }
 // Second, smaller bar: progress from this tier to the next one, so long trackers still move with every win.
 function tierBarHTML(p) {
   const s = p.streak || 0, i = TIERS.findIndex((t, k) => s >= t.min && !(TIERS[k + 1] && s >= TIERS[k + 1].min)), cur = TIERS[i], next = TIERS[i + 1];
   if (!next) return `<span class="lbar tbar top" style="--b1:${cur.c1};--b2:${cur.c2}"><span class="lbar-cap"><span>${cur.sym} ${esc(cur.name)} · top tier</span></span></span>`;
   const n = next.min - cur.min, done = s - cur.min, pct = Math.round(done / n * 100), left = next.min - s;
-  const tr = barTrackHTML(BAR_STYLE, pct, n, "");
+  const tr = barTrackHTML(BAR_STYLE, pct, n, "", done);
   return `<span class="lbar tbar ${tr.v ? "v-" + tr.v : ""}" style="--b1:${next.c1};--b2:${next.c2};--n:${tr.n}" title="${plural(left, "win")} to ${esc(next.name)}">
-    <span class="lbar-cap"><span>Next tier: <em>${next.sym} ${esc(next.name)}</em></span><span>${plural(left, "win")}</span></span>
+    <span class="lbar-cap"><span>Next tier: <em>${next.sym} ${esc(next.name)}</em></span></span>
     ${tr.html}</span>`;
 }
 function liveCardHTML(l, p) {
