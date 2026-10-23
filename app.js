@@ -2184,12 +2184,12 @@ const livePct = l => Math.max(0, Math.min(100, Math.round((l.frac || 0) * 100)))
 const liveGoal = l => l.to_go === 0 ? "Target hit 🎯" : l.to_go == null ? "" : `${plural(l.to_go, "win")} to go`;
 // Gold, silver and bronze for the top three; everyone else charges in the app's colours.
 const PLACE_BAR = { 1: ["#ffe27a", "#f5a300"], 2: ["#f4f7fb", "#9aa6b5"], 3: ["#ffc08a", "#b8662e"] };
-function liveBarHTML(l, p, mini, place) {
+function liveBarHTML(l, p, mini, place, noBal) {
   if (!l) return "";
   const [c1, c2] = PLACE_BAR[place] || ["#7dffb0", "#22c3ff"];
   return `<span class="lbar ${mini ? "mini" : ""} ${l.pending ? "live" : ""}" style="--b1:${c1};--b2:${c2}" title="${livePct(l)}% of the way to ${moneyShort(l.target)}">
     <span class="lbar-track"><i style="width:${Math.max(livePct(l), 3)}%" data-to="${Math.max(livePct(l), 3)}" data-lid="${p.id}"><b class="lbar-spark"></b></i></span>
-    ${mini ? "" : `<span class="lbar-cap">${l.pending ? `<em>⏳ Bet in play</em>` : `<span>${moneyShort(l.balance)} → ${moneyShort(l.target)}</span>`}<span>${liveGoal(l)}</span></span>`}</span>`;
+    ${mini ? "" : `<span class="lbar-cap">${l.pending ? `<em>⏳ Bet in play</em>` : noBal ? "<span></span>" : `<span>${moneyShort(l.balance)} → ${moneyShort(l.target)}</span>`}<span>${liveGoal(l)}</span></span>`}</span>`;
 }
 function liveCardHTML(l, p) {
   if (!l) return "";
@@ -2328,7 +2328,7 @@ function boardRow(p) {
   return `<div class="frow lb-row ${place ? "place" + place : ""} ${p.is_me ? "me" : ""}" data-fid="${p.id}">
     <span class="lb-rank">${place ? MEDALS[place - 1] : p.rank}</span>
     <button class="fwho" data-fopen="${p.id}">${personAvatar(p.display_name, p.avatar_url, p.streak, t, 42, { badge: true })}
-      <span class="fname"><b>${glowNameAs(p.display_name, t)}${p.is_me ? ` <em class="lb-you">You</em>` : ""}</b><small>${sub}</small>${liveBarHTML(p.live, p, false, place)}</span></button>
+      <span class="fname"><span class="lb-namerow"><b>${glowNameAs(p.display_name, t)}${p.is_me ? ` <em class="lb-you">You</em>` : ""}</b>${p.live ? `<span class="lb-bal" title="Tracker balance and target"><b>${moneyTiny(p.live.balance)}</b><i>→</i>${moneyTiny(p.live.target)}</span>` : ""}</span><small>${sub}</small>${liveBarHTML(p.live, p, false, place, true)}</span></button>
     <span class="lb-score">${boardValue(p)}</span></div>`;
 }
 document.addEventListener("click", e => {
