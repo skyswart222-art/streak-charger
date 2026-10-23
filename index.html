@@ -934,6 +934,32 @@ canvas.arc-sparks { position: fixed; inset: 0; width: 100%; height: 100%; z-inde
 .lbar.tbar.v-tube .lbar-track { height: 9px; }
 .lbar.tbar.v-tube .lbar-spark { width: 12px; height: 12px; margin-top: -6px; right: -6px; }
 
+/* Calmer, crisper bar head: a slim lit edge that breathes slowly instead of a flashing white ball. */
+.lbar-track i { animation: lbar-breathe 6s ease-in-out infinite; }
+.lbar-track i::after { background: linear-gradient(90deg, transparent, rgba(255,255,255,.22) 50%, transparent); background-size: 35% 100%; background-repeat: no-repeat; animation: lbar-run 7s cubic-bezier(.45,0,.55,1) infinite; }
+@keyframes lbar-breathe { 50% { filter: brightness(1.08); box-shadow: 0 0 9px color-mix(in srgb, var(--b1) 55%, transparent); } }
+.lbar.live .lbar-track i { animation: lbar-pulse 3.5s ease-in-out infinite; }
+.lbar.live .lbar-track i::after { animation-duration: 5s; }
+@keyframes lbar-pulse { 50% { filter: brightness(1.12); box-shadow: 0 0 11px color-mix(in srgb, var(--b1) 65%, transparent); } }
+.lbar-spark, .lbar.v-tube .lbar-spark, .lbar.tbar.v-tube .lbar-spark { padding: 0; display: block; right: 0; top: 0; bottom: 0; width: 3px; height: auto; margin: 0; border-radius: 2px; background: linear-gradient(180deg, #fff, color-mix(in srgb, var(--b1) 45%, #fff)); box-shadow: 0 0 3px color-mix(in srgb, var(--b1) 90%, transparent), 0 0 6px color-mix(in srgb, var(--b1) 40%, transparent); animation: lbar-head 5s ease-in-out infinite; }
+.lbar.v-seg .lbar-spark { display: block; right: 3px; }
+.lbar.tbar .lbar-spark { display: none; }
+@keyframes lbar-head { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
+
+.lbar { position: relative; }
+.lbar-embers { position: absolute; top: 5px; width: 0; height: 0; pointer-events: none; }
+.lbar-embers b { padding: 0; margin: 0; position: absolute; left: 0; top: 0; width: 2px; height: 2px; border-radius: 50%; background: #fff3c4; box-shadow: 0 0 3px 1px rgba(255,200,60,.8); opacity: 0; animation: lbar-ember 4.2s ease-out var(--d) infinite; }
+@keyframes lbar-ember { 0% { opacity: 0; transform: translate(0, 0) scale(1); } 10% { opacity: .85; } 70% { opacity: .35; } 100% { opacity: 0; transform: translate(var(--x), var(--y)) scale(.4); } }
+@media (prefers-reduced-motion: reduce) { .lbar-spark, .lbar-embers b { animation: none !important; } .lbar-embers { display: none; } }
+/* Blocks: no outer glow, which would smear into the empty blocks; brightness alone breathes. */
+.lbar.v-seg .lbar-track i, .lbar.v-seg.charging .lbar-track i { box-shadow: none; animation-name: lbar-breathe-seg; }
+.lbar.v-seg.live .lbar-track i { animation-name: lbar-breathe-seg; animation-duration: 3.5s; }
+@keyframes lbar-breathe-seg { 50% { filter: brightness(1.1); } }
+.lbar b.lbar-spark, .lbar-embers b { padding: 0; margin: 0; }
+.lbar.tbar b.lbar-spark { display: none; }
+.lbar.tbar .lbar-track i::after { display: none; }
+.lbar.v-seg .lbar-track i { clip-path: inset(0 2px 0 0); }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
   .stamp, .x-mark, .glass-fx .hg, .glass-fx .rk, .tierburst { animation: fadeQuick 1.2s forwards !important; }
