@@ -1942,6 +1942,14 @@ function renderSetupNeeded() {
   $("#useLocal").onclick = () => { localMode = true; state = deviceState() || freshState(); startApp(); };
 }
 
+/* ---------- skyversion and update history (newest first; build.py fills these from VERSION and changelog.txt) ---------- */
+const SKY_LOG = [["1.49", "Oct 23", "Version number on the splash and profile, plus this update history"], ["1.48", "Oct 23", "Hold the mic to talk and let go to send, in every chat"], ["1.47", "Oct 23", "Slower, more realistic chopper take-off with a spark trail"], ["1.46", "Oct 23", "The chopper flies away when the splash ring fills"], ["1.45", "Oct 23", "Ranked ladder: Rookie, Bronze to Champion in three levels, then Legend"], ["1.44", "Oct 23", "Tied players shove each other on the leaderboard"], ["1.43", "Oct 23", "Launch splash runs five seconds"], ["1.42", "Oct 23", "Launch splash stays up a little longer"], ["1.41", "Oct 23", "Launch splash screen with the app logo"], ["1.40", "Oct 23", "Top-three embers, risky bet tags and New joiners in Friends"], ["1.39", "Oct 23", "Calmer leaderboard bars and first-place embers"], ["1.38", "Oct 23", "Block progress bars and a next-tier bar on the leaderboard"], ["1.37", "Oct 23", "Leaderboard win sparks, pinned group chats and a welcome note"], ["1.36", "Oct 23", "Leaderboard balance pill"], ["1.35", "Oct 22", "Removed the \"edited\" tag from tracker targets"], ["1.34", "Oct 22", "Verified wins with a gold plaque, and flagging suspicious slips"], ["1.33", "Oct 22", "Tier-coloured sparks that build over your last 3 wins"], ["1.32", "Oct 22", "Sparks come off the tier progress ring"], ["1.31", "Oct 22", "Sparks build up toward a tier-up"], ["1.30", "Oct 22", "Grinder sparks off the arc star"], ["1.29", "Oct 22", "Delete pending bets and trackers"], ["1.28", "Oct 21", "Same-size leaderboard cards with gold, silver and bronze top three"], ["1.27", "Oct 21", "Animated leaderboard with charging bars and win/loss bursts"], ["1.26", "Oct 21", "Pop-up sheets close with a button or a pull-down"], ["1.25", "Oct 21", "Live progress bars for friends, and tap a friend to see their bets"], ["1.24", "Oct 21", "See when someone is typing in chats and groups"], ["1.23", "Oct 21", "New app icon: a rig at sunset inside the streak arc"], ["1.22", "Oct 21", "Rig-worker streak tiers"], ["1.21", "Oct 21", "Show or hide each tracker from friends and the community"], ["1.20", "Oct 21", "Bet slip screenshots are kept with each logged bet"], ["1.19", "Oct 21", "Top row sits below the iPhone status bar, and New group always shows"], ["1.18", "Oct 21", "Removed the background glow; solid chat header"], ["1.17", "Oct 21", "No more haze above the top bar when pulling down"], ["1.16", "Oct 21", "Clean top bar instead of a hazy fade"], ["1.15", "Oct 21", "Bottom bar stays at the bottom on short pages"], ["1.14", "Oct 21", "Undid the bottom bar gap fix"], ["1.13", "Oct 21", "Closed the gap under the bottom bar"], ["1.12", "Oct 21", "Hints tab in Stats"], ["1.11", "Oct 21", "iPhone no longer zooms in and cuts off the screen edges"], ["1.10", "Oct 21", "Top bar no longer covers screens; locked themes stay a surprise"], ["1.9", "Oct 21", "Renamed the app to Pipe Dream"], ["1.8", "Oct 21", "Bet slip reader is back, free and on the phone"], ["1.7", "Oct 21", "App icon and Home Screen settings"], ["1.6", "Oct 21", "Challenges"], ["1.5", "Oct 21", "Group chats"], ["1.4", "Oct 21", "Friends feed"], ["1.3", "Oct 21", "Chat between friends"], ["1.2", "Oct 21", "Leaderboard"], ["1.1", "Oct 21", "Friends, with streaks worked out by the database"], ["1.0", "Oct 19", "First version: accounts, sync, profiles and five tabs"]];
+function updateHistoryHTML() {
+  return `<div class="appver">skyversion 1.49</div>
+    <details class="glass card uphist"><summary>Update history <small>${plural(SKY_LOG.length, "version")}</small></summary>
+      <ol>${SKY_LOG.map(([v, d, t], i) => `<li${i ? "" : ' class="now"'}><b>${esc(v)}</b><span>${esc(t)}</span><small>${esc(d)}${i ? "" : " · you're on this"}</small></li>`).join("")}</ol></details>`;
+}
+
 /* ---------- Launch splash ----------
    Shown from the page itself so it appears straight away; once the first screen is ready the ring finishes charging, the chopper flies off and it fades out. */
 const SPLASH_MIN = 3000;
@@ -2043,7 +2051,7 @@ function renderProfile() {
   if (localMode) {
     $("#view").innerHTML = `<div class="head" style="padding-top:18px"><div><div class="eyebrow">Profile</div><h1>On this device only</h1></div></div>
       <div class="glass card"><div class="cap">Accounts, profiles and syncing switch on once config.js has your Supabase keys.</div><button class="btn sec" data-nav="awards">🎨 Themes and awards</button></div>
-      <div class="appver">skyversion 1.1</div>`;
+      ${updateHistoryHTML()}`;
     return;
   }
   const b = liveBest(), device = notYetImported(deviceState());
@@ -2070,7 +2078,7 @@ function renderProfile() {
     <div class="glass card"><h3>Your trackers</h3><div class="cap">Deleting a tracker removes it and all its bets for good.</div>
       <div class="ptrk">${state.trackers.map(t => `<div class="ptrk-row"><span class="ptrk-dot" style="background:${esc(t.accent)}"></span><span class="ptrk-name"><b>${esc(t.name)}</b><small>${plural(t.bets.length, "bet")}${t.shared === false ? " · 🔒 private" : ""}</small></span><button class="ptrk-del" data-pdel="${t.id}" aria-label="Delete ${esc(t.name)}">🗑 Delete</button></div>`).join("")}</div></div>
     <button class="btn warn" id="signOut" style="margin-top:14px">Log out</button>
-    <div class="appver">skyversion 1.1</div>`;
+    ${updateHistoryHTML()}`;
   $("#avFile").onchange = async e => {
     const f = e.target.files && e.target.files[0]; e.target.value = ""; if (!f) return;
     $("#avErr").textContent = ""; $(".profile-hero .avatar").classList.add("busy");
