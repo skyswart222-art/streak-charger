@@ -1084,6 +1084,22 @@ canvas.arc-sparks { position: fixed; inset: 0; width: 100%; height: 100%; z-inde
 .avatar img.rkic, img.rkic { width: 1.2em; height: 1.2em; border-radius: 0; object-fit: contain; display: inline-block; }
 .tierburst .sym img.rkic { width: 1em; height: 1em; }
 
+/* skyversion: bottom right of the splash, and under Log out on the profile page */
+.sp-ver { position: absolute; right: max(14px, env(safe-area-inset-right, 0px)); bottom: calc(12px + env(safe-area-inset-bottom, 0px)); font-family: var(--body); font-size: 11px; font-weight: 600; letter-spacing: .06em; color: rgba(255,255,255,.42); opacity: 0; animation: sp-fade .6s ease-out .6s forwards; }
+.appver { margin: 14px 0 4px; text-align: center; font-size: 12px; font-weight: 600; letter-spacing: .06em; color: var(--muted); }
+.uphist { padding: 0; }
+.uphist summary { list-style: none; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 16px; font-weight: 800; }
+.uphist summary::-webkit-details-marker { display: none; }
+.uphist summary::after { content: "›"; font-size: 20px; line-height: 1; color: var(--muted); transition: transform .2s; }
+.uphist[open] summary::after { transform: rotate(90deg); }
+.uphist summary small { margin-left: auto; font-weight: 600; color: var(--muted); font-size: 12px; }
+.uphist ol { list-style: none; margin: 0; padding: 0 16px 12px; display: flex; flex-direction: column; }
+.uphist li { display: grid; grid-template-columns: 44px minmax(0, 1fr); column-gap: 10px; padding: 9px 0; border-top: 1px solid var(--stroke); }
+.uphist li b { grid-row: span 2; font-variant-numeric: tabular-nums; color: var(--muted); }
+.uphist li.now b { color: var(--accent, #ff8a2a); }
+.uphist li span { font-size: 14px; line-height: 1.35; }
+.uphist li small { font-size: 11px; color: var(--muted); }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
   .stamp, .x-mark, .glass-fx .hg, .glass-fx .rk, .tierburst { animation: fadeQuick 1.2s forwards !important; }
@@ -1101,6 +1117,7 @@ canvas.arc-sparks { position: fixed; inset: 0; width: 100%; height: 100%; z-inde
   </div>
   <div class="sp-word"><span>Pipe</span><span>Dream</span></div>
   <div class="sp-tag">Bet smarter · Compound the streak</div>
+  <div class="sp-ver">skyversion 1.49</div>
 </div>
 <div class="bgfx" aria-hidden="true"></div>
 <div class="app" id="app">
