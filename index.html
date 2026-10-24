@@ -1121,6 +1121,8 @@ canvas.arc-sparks { position: fixed; inset: 0; width: 100%; height: 100%; z-inde
 .ptrk-h, .pick-h { font: 600 11px/1.2 var(--body); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin: 14px 0 6px; }
 .fbets .seg.kindnav.fkind { margin: 0 0 10px; }
 .seg.kindnav.lb-kind { margin: 0 0 10px; }
+.kindnav button { position: relative; }
+.kindnav .has-dot[data-count]:not([data-count=""])::after { top: 50%; left: auto; right: 12px; transform: translateY(-50%); box-shadow: none; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
@@ -1139,7 +1141,7 @@ canvas.arc-sparks { position: fixed; inset: 0; width: 100%; height: 100%; z-inde
   </div>
   <div class="sp-word"><span>Pipe</span><span>Dream</span></div>
   <div class="sp-tag">Bet smarter · Compound the streak</div>
-  <div class="sp-ver">skyversion 1.53</div>
+  <div class="sp-ver">skyversion 1.54</div>
 </div>
 <div class="bgfx" aria-hidden="true"></div>
 <div class="app" id="app">
