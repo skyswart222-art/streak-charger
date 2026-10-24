@@ -2240,9 +2240,9 @@ function renderSetupNeeded() {
 }
 
 /* ---------- skyversion and update history (newest first; build.py fills these from VERSION and changelog.txt) ---------- */
-const SKY_LOG = [["1.53", "Oct 23", "Leaderboard has Compounding and Regular tabs, each with its own boards"], ["1.52", "Oct 23", "Compounding and regular betting kept fully separate: trackers page, feed, friend bets, profile and bet sharing"], ["1.51", "Oct 23", "Regular betting trackers: a ledger with stakes, stats and a Regular leaderboard"], ["1.50", "Oct 23", "Profile button at the top right only shows on Home"], ["1.49", "Oct 23", "Version number on the splash and profile, plus this update history"], ["1.48", "Oct 23", "Hold the mic to talk and let go to send, in every chat"], ["1.47", "Oct 23", "Slower, more realistic chopper take-off with a spark trail"], ["1.46", "Oct 23", "The chopper flies away when the splash ring fills"], ["1.45", "Oct 23", "Ranked ladder: Rookie, Bronze to Champion in three levels, then Legend"], ["1.44", "Oct 23", "Tied players shove each other on the leaderboard"], ["1.43", "Oct 23", "Launch splash runs five seconds"], ["1.42", "Oct 23", "Launch splash stays up a little longer"], ["1.41", "Oct 23", "Launch splash screen with the app logo"], ["1.40", "Oct 23", "Top-three embers, risky bet tags and New joiners in Friends"], ["1.39", "Oct 23", "Calmer leaderboard bars and first-place embers"], ["1.38", "Oct 23", "Block progress bars and a next-tier bar on the leaderboard"], ["1.37", "Oct 23", "Leaderboard win sparks, pinned group chats and a welcome note"], ["1.36", "Oct 23", "Leaderboard balance pill"], ["1.35", "Oct 22", "Removed the \"edited\" tag from tracker targets"], ["1.34", "Oct 22", "Verified wins with a gold plaque, and flagging suspicious slips"], ["1.33", "Oct 22", "Tier-coloured sparks that build over your last 3 wins"], ["1.32", "Oct 22", "Sparks come off the tier progress ring"], ["1.31", "Oct 22", "Sparks build up toward a tier-up"], ["1.30", "Oct 22", "Grinder sparks off the arc star"], ["1.29", "Oct 22", "Delete pending bets and trackers"], ["1.28", "Oct 21", "Same-size leaderboard cards with gold, silver and bronze top three"], ["1.27", "Oct 21", "Animated leaderboard with charging bars and win/loss bursts"], ["1.26", "Oct 21", "Pop-up sheets close with a button or a pull-down"], ["1.25", "Oct 21", "Live progress bars for friends, and tap a friend to see their bets"], ["1.24", "Oct 21", "See when someone is typing in chats and groups"], ["1.23", "Oct 21", "New app icon: a rig at sunset inside the streak arc"], ["1.22", "Oct 21", "Rig-worker streak tiers"], ["1.21", "Oct 21", "Show or hide each tracker from friends and the community"], ["1.20", "Oct 21", "Bet slip screenshots are kept with each logged bet"], ["1.19", "Oct 21", "Top row sits below the iPhone status bar, and New group always shows"], ["1.18", "Oct 21", "Removed the background glow; solid chat header"], ["1.17", "Oct 21", "No more haze above the top bar when pulling down"], ["1.16", "Oct 21", "Clean top bar instead of a hazy fade"], ["1.15", "Oct 21", "Bottom bar stays at the bottom on short pages"], ["1.14", "Oct 21", "Undid the bottom bar gap fix"], ["1.13", "Oct 21", "Closed the gap under the bottom bar"], ["1.12", "Oct 21", "Hints tab in Stats"], ["1.11", "Oct 21", "iPhone no longer zooms in and cuts off the screen edges"], ["1.10", "Oct 21", "Top bar no longer covers screens; locked themes stay a surprise"], ["1.9", "Oct 21", "Renamed the app to Pipe Dream"], ["1.8", "Oct 21", "Bet slip reader is back, free and on the phone"], ["1.7", "Oct 21", "App icon and Home Screen settings"], ["1.6", "Oct 21", "Challenges"], ["1.5", "Oct 21", "Group chats"], ["1.4", "Oct 21", "Friends feed"], ["1.3", "Oct 21", "Chat between friends"], ["1.2", "Oct 21", "Leaderboard"], ["1.1", "Oct 21", "Friends, with streaks worked out by the database"], ["1.0", "Oct 19", "First version: accounts, sync, profiles and five tabs"]];
+const SKY_LOG = [["1.54", "Oct 24", "Feed tabs show a marker when Compounding or Regular has new activity"], ["1.53", "Oct 23", "Leaderboard has Compounding and Regular tabs, each with its own boards"], ["1.52", "Oct 23", "Compounding and regular betting kept fully separate: trackers page, feed, friend bets, profile and bet sharing"], ["1.51", "Oct 23", "Regular betting trackers: a ledger with stakes, stats and a Regular leaderboard"], ["1.50", "Oct 23", "Profile button at the top right only shows on Home"], ["1.49", "Oct 23", "Version number on the splash and profile, plus this update history"], ["1.48", "Oct 23", "Hold the mic to talk and let go to send, in every chat"], ["1.47", "Oct 23", "Slower, more realistic chopper take-off with a spark trail"], ["1.46", "Oct 23", "The chopper flies away when the splash ring fills"], ["1.45", "Oct 23", "Ranked ladder: Rookie, Bronze to Champion in three levels, then Legend"], ["1.44", "Oct 23", "Tied players shove each other on the leaderboard"], ["1.43", "Oct 23", "Launch splash runs five seconds"], ["1.42", "Oct 23", "Launch splash stays up a little longer"], ["1.41", "Oct 23", "Launch splash screen with the app logo"], ["1.40", "Oct 23", "Top-three embers, risky bet tags and New joiners in Friends"], ["1.39", "Oct 23", "Calmer leaderboard bars and first-place embers"], ["1.38", "Oct 23", "Block progress bars and a next-tier bar on the leaderboard"], ["1.37", "Oct 23", "Leaderboard win sparks, pinned group chats and a welcome note"], ["1.36", "Oct 23", "Leaderboard balance pill"], ["1.35", "Oct 22", "Removed the \"edited\" tag from tracker targets"], ["1.34", "Oct 22", "Verified wins with a gold plaque, and flagging suspicious slips"], ["1.33", "Oct 22", "Tier-coloured sparks that build over your last 3 wins"], ["1.32", "Oct 22", "Sparks come off the tier progress ring"], ["1.31", "Oct 22", "Sparks build up toward a tier-up"], ["1.30", "Oct 22", "Grinder sparks off the arc star"], ["1.29", "Oct 22", "Delete pending bets and trackers"], ["1.28", "Oct 21", "Same-size leaderboard cards with gold, silver and bronze top three"], ["1.27", "Oct 21", "Animated leaderboard with charging bars and win/loss bursts"], ["1.26", "Oct 21", "Pop-up sheets close with a button or a pull-down"], ["1.25", "Oct 21", "Live progress bars for friends, and tap a friend to see their bets"], ["1.24", "Oct 21", "See when someone is typing in chats and groups"], ["1.23", "Oct 21", "New app icon: a rig at sunset inside the streak arc"], ["1.22", "Oct 21", "Rig-worker streak tiers"], ["1.21", "Oct 21", "Show or hide each tracker from friends and the community"], ["1.20", "Oct 21", "Bet slip screenshots are kept with each logged bet"], ["1.19", "Oct 21", "Top row sits below the iPhone status bar, and New group always shows"], ["1.18", "Oct 21", "Removed the background glow; solid chat header"], ["1.17", "Oct 21", "No more haze above the top bar when pulling down"], ["1.16", "Oct 21", "Clean top bar instead of a hazy fade"], ["1.15", "Oct 21", "Bottom bar stays at the bottom on short pages"], ["1.14", "Oct 21", "Undid the bottom bar gap fix"], ["1.13", "Oct 21", "Closed the gap under the bottom bar"], ["1.12", "Oct 21", "Hints tab in Stats"], ["1.11", "Oct 21", "iPhone no longer zooms in and cuts off the screen edges"], ["1.10", "Oct 21", "Top bar no longer covers screens; locked themes stay a surprise"], ["1.9", "Oct 21", "Renamed the app to Pipe Dream"], ["1.8", "Oct 21", "Bet slip reader is back, free and on the phone"], ["1.7", "Oct 21", "App icon and Home Screen settings"], ["1.6", "Oct 21", "Challenges"], ["1.5", "Oct 21", "Group chats"], ["1.4", "Oct 21", "Friends feed"], ["1.3", "Oct 21", "Chat between friends"], ["1.2", "Oct 21", "Leaderboard"], ["1.1", "Oct 21", "Friends, with streaks worked out by the database"], ["1.0", "Oct 19", "First version: accounts, sync, profiles and five tabs"]];
 function updateHistoryHTML() {
-  return `<div class="appver">skyversion 1.53</div>
+  return `<div class="appver">skyversion 1.54</div>
     <details class="glass card uphist"><summary>Update history <small>${plural(SKY_LOG.length, "version")}</small></summary>
       <ol>${SKY_LOG.map(([v, d, t], i) => `<li${i ? "" : ' class="now"'}><b>${esc(v)}</b><span>${esc(t)}</span><small>${esc(d)}${i ? "" : " · you're on this"}</small></li>`).join("")}</ol></details>`;
 }
@@ -3345,19 +3345,24 @@ document.addEventListener("click", async e => {
 /* ---------- Feed: what you and your friends have been betting ----------
    Bets logged, bets won or lost, and money banked, newest first. Friends react with one emoji each. */
 let feed = null, feedAt = 0, feedErr = "", feedLoading = false, feedDone = false, feedPick = null;
-const FEED_SEEN_KEY = () => "streak-charger.feedSeen." + (Cloud.user ? Cloud.user.id : "local");
-function feedSeen() { try { return Number(localStorage.getItem(FEED_SEEN_KEY())) || 0; } catch (e) { return 0; } }
-function markFeedSeen() {
+// Compounding and regular activity are seen separately, one feed tab at a time.
+const FEED_SEEN_KEY = (k = "compound") => "streak-charger.feedSeen." + (Cloud.user ? Cloud.user.id : "local") + (k === "regular" ? ".regular" : "");
+function feedSeen(k) { try { return Number(localStorage.getItem(FEED_SEEN_KEY(k))) || 0; } catch (e) { return 0; } }
+function markFeedSeen(k = curSection()) {
   // Friend activity up to the newest item counts as seen; with none yet, everything before now does.
-  const top = (feed || []).find(x => x.user_id !== Cloud.user.id), at = top ? Number(top.at) : Date.now() - 60000;
-  if (at > feedSeen()) try { localStorage.setItem(FEED_SEEN_KEY(), String(at)); } catch (e) {}
+  const top = (feed || []).find(x => x.user_id !== Cloud.user.id && feedKind(x) === k), at = top ? Number(top.at) : Date.now() - 60000;
+  if (at > feedSeen(k)) try { localStorage.setItem(FEED_SEEN_KEY(k), String(at)); } catch (e) {}
 }
-// New friend activity since you last opened the feed (none counted the first time, so it doesn't start at 30).
-function feedNew() {
-  const seen = feedSeen(); if (!seen || !feed) return 0;
-  return feed.filter(x => x.user_id !== Cloud.user.id && x.at > seen).length;
+// New friend activity since you last opened that tab (none counted the first time, so it doesn't start at 30).
+function feedNew(k) {
+  if (!k) return feedNew("compound") + feedNew("regular");
+  const seen = feedSeen(k); if (!seen || !feed) return 0;
+  return feed.filter(x => x.user_id !== Cloud.user.id && feedKind(x) === k && x.at > seen).length;
 }
-const feedNewLabel = () => { const n = feedNew(); return n >= 30 ? "30+" : n || ""; };
+const feedNewLabel = k => { const n = feedNew(k); return n >= 30 ? "30+" : n || ""; };
+function feedKindDots() {
+  document.querySelectorAll("#view .kindnav [data-kind]").forEach(b => { b.classList.add("has-dot"); b.dataset.count = feedNewLabel(b.dataset.kind); });
+}
 async function loadFeed(maxAge = 0, more = false) {
   if (!Cloud.user || localMode || feedLoading || (!more && Date.now() - feedAt < maxAge)) return;
   feedLoading = true; if (!more) feedAt = Date.now();
@@ -3372,7 +3377,7 @@ async function loadFeed(maxAge = 0, more = false) {
       const rest = feed && last ? feed.filter(x => !keys.has(x.key) && (x.at < last.at || (x.at === last.at && x.key < last.key))) : [];
       if (!rest.length) feedDone = fresh.length < 30;
       feed = fresh.concat(rest);
-      if (!feedSeen()) markFeedSeen();
+      KIND_NAV.forEach(([k]) => { if (!feedSeen(k)) markFeedSeen(k); });
     }
     feedErr = "";
   } catch (x) { feedErr = Cloud.nice(x); }
@@ -3393,7 +3398,7 @@ function renderFeedBody() {
   const hasFriends = (friends || []).some(f => f.status === "accepted") || (feed || []).some(x => x.user_id !== Cloud.user.id);
   if (feedErr && !feed) { box.innerHTML = `<div class="glass card"><div class="err" style="margin:0">${esc(feedErr)}</div></div>`; return; }
   if (!feed) { box.innerHTML = `<div class="glass card"><div class="cap" style="margin:0">Loading the feed…</div></div>`; return; }
-  const seen = feedSeen(), reg = curSection() === "regular", items = feed.filter(it => feedKind(it) === curSection());
+  const seen = feedSeen(curSection()), reg = curSection() === "regular", items = feed.filter(it => feedKind(it) === curSection());
   let html = friends && !hasFriends ? `<div class="glass card fempty"><div class="soon-ic">📣</div><p>Your feed shows the bets your friends log, win and lose, as they happen. Add a friend to fill it up.</p><button class="btn sec" data-nav="friends">Find friends</button></div>` : "";
   if (!items.length && hasFriends) html += `<div class="glass card fempty"><div class="soon-ic">${reg ? "📒" : "📣"}</div><p>No ${reg ? "regular" : "compounding"} activity here yet. When you or your friends log a ${reg ? "regular" : "compounding"} bet, it shows up here.</p></div>`;
   let lastDay = "";
@@ -3404,7 +3409,7 @@ function renderFeedBody() {
   }
   if (feed.length && !feedDone) html += `<button class="btn sec feed-more" data-feedmore ${feedLoading ? "disabled" : ""}>Show older activity</button>`;
   box.innerHTML = html;
-  markFeedSeen(); renderMe();
+  markFeedSeen(); feedKindDots(); renderMe();
 }
 function feedWhat(it) {
   if (it.kind === "bank") return `banked <b>${money(it.amount || 0)}</b>`;
